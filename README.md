@@ -4,7 +4,9 @@
 
 A pitch-tracking ring modulator audio plugin (VST3/AU/Standalone) built with JUCE 8.
 
-![funny_picture](img/Screenshot%202026-02-14%20at%208.30.52 PM.png)
+<p align="center">
+  <img src="img/hdn-ring-modulator-ui.png" alt="HDN Ring Modulator plugin interface" width="780">
+</p>
 
 ## What Is This?
 
