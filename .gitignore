@@ -2,6 +2,8 @@ prompt.md
 CLAUDE.md
 claude_notes.md
 implementation-plan.md
+implementation_plan.md
+cpu_optimization_plan.md
 
 # Build
 build/
