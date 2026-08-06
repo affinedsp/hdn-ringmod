@@ -17,6 +17,8 @@ target_sources(HdnRingmodTests PRIVATE
     TestYinPitchDetector.cpp
     TestPitchSmoother.cpp
     TestParameters.cpp
+    TestPluginLookAndFeel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source/PluginLookAndFeel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../source/dsp/Oscillator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../source/dsp/YinPitchDetector.cpp
 )
@@ -31,7 +33,9 @@ target_compile_definitions(HdnRingmodTests PRIVATE
 )
 
 target_link_libraries(HdnRingmodTests PRIVATE
+    HdnRingmodAssets
     juce::juce_dsp
+    juce::juce_gui_basics
     Catch2::Catch2WithMain
 )
 

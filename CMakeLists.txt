@@ -10,12 +10,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_subdirectory(JUCE)
 
+juce_add_binary_data(HdnRingmodAssets
+    NAMESPACE HdnRingmodAssets
+    HEADER_NAME HdnRingmodAssets.h
+    SOURCES
+        assets/fonts/BarlowCondensed-Regular.ttf
+        assets/fonts/BarlowCondensed-SemiBold.ttf
+)
+
 juce_add_plugin(HdnRingmod
     COMPANY_NAME "HDN"
     PLUGIN_MANUFACTURER_CODE Hdnx
     PLUGIN_CODE Hdrm
     FORMATS VST3 AU Standalone
     PRODUCT_NAME "HDN Ring Modulator"
+    EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     COPY_PLUGIN_AFTER_BUILD FALSE
 )
 
@@ -24,6 +33,7 @@ add_library(HdnRingmodShared INTERFACE)
 target_sources(HdnRingmodShared INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/source/PluginProcessor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/source/PluginEditor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/PluginLookAndFeel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/source/dsp/YinPitchDetector.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/source/dsp/Oscillator.cpp
 )
@@ -31,6 +41,7 @@ target_sources(HdnRingmodShared INTERFACE
 target_include_directories(HdnRingmodShared INTERFACE source)
 
 target_link_libraries(HdnRingmodShared INTERFACE
+    HdnRingmodAssets
     juce::juce_audio_utils
     juce::juce_audio_processors
     juce::juce_dsp
