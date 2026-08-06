@@ -44,6 +44,22 @@ TEST_CASE("PitchSmoother: holds last frequency when confidence drops")
                  Catch::Matchers::WithinAbs(440.0, 0.1));
 }
 
+TEST_CASE("PitchSmoother: releases a stale pitch after invalid input")
+{
+    PitchSmoother smoother;
+    smoother.prepare(44100.0);
+    smoother.setSmoothingAmount(0.0f);
+    smoother.setSensitivity(0.5f);
+
+    smoother.process(440.0f, 1.0f);
+    float held = 0.0f;
+    for (int i = 0; i < 2204; ++i)
+        held = smoother.process(0.0f, 0.0f);
+
+    REQUIRE(held > 0.0f);
+    REQUIRE(smoother.process(0.0f, 0.0f) == 0.0f);
+}
+
 TEST_CASE("PitchSmoother: prepare resets state")
 {
     PitchSmoother smoother;

@@ -104,6 +104,8 @@ ctest --test-dir build --build-config Release --output-on-failure
 
 In **Pitch Track** mode, the plugin detects the pitch of the incoming audio using the YIN algorithm, then ring-modulates the signal with an oscillator locked to that pitch (multiplied by the Rate Multiplier). The effect stays dry only until the tracker has a valid pitch, then follows the tracked carrier directly.
 
+The tracker uses short analysis windows for normal guitar notes and runs longer analyses for low or uncertain pitches, with slower background audits for octave errors. It supports fundamentals down to 20 Hz without imposing the low-frequency analysis rate on the common path. Acquisition can take roughly 110 ms near 20 Hz because one cycle alone is 50 ms.
+
 In **Manual** mode, the oscillator runs at a fixed frequency set by the Manual Rate knob.
 
 ## License

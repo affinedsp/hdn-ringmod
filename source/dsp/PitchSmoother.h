@@ -12,6 +12,10 @@ public:
         hasValue = false;
         smoothed = 0.0f;
         cachedFreq = 0.0f;
+        lastDetectedFreq = 0.0f;
+        cachedLogFreq = 0.0f;
+        invalidSamples = 0;
+        releaseSamples = std::max(1, static_cast<int>(sr * 0.05f));
         recomputeAlpha();
     }
 
@@ -31,9 +35,23 @@ public:
     inline float process(float detectedFreq, float confidence)
     {
         if (detectedFreq <= 0.0f || confidence < sensitivityThreshold)
+        {
+            if (hasValue && ++invalidSamples >= releaseSamples)
+            {
+                hasValue = false;
+                smoothed = 0.0f;
+                cachedFreq = 0.0f;
+            }
             return cachedFreq;
+        }
 
-        float logFreq = std::log2(detectedFreq);
+        invalidSamples = 0;
+        if (detectedFreq != lastDetectedFreq)
+        {
+            lastDetectedFreq = detectedFreq;
+            cachedLogFreq = std::log2(detectedFreq);
+        }
+        float logFreq = cachedLogFreq;
 
         if (!hasValue)
         {
@@ -71,5 +89,9 @@ private:
     float alpha = 0.5f;
     float sensitivityThreshold = 0.5f;
     float cachedFreq = 0.0f;
+    float lastDetectedFreq = 0.0f;
+    float cachedLogFreq = 0.0f;
+    int invalidSamples = 0;
+    int releaseSamples = 2205;
     bool hasValue = false;
 };
