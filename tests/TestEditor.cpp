@@ -49,6 +49,34 @@ void setPlain(juce::AudioProcessorValueTreeState& state, const char* id, float v
     parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
 }
 
+void process(HdnRingmodAudioProcessor& processor, int blocks, float frequency);
+
+// Feeds audio at roughly real-time pace. The pitch detector analyses on its own
+// thread, and a host never delivers blocks faster than real time.
+void processInRealTime(HdnRingmodAudioProcessor& processor, double milliseconds, float frequency)
+{
+    constexpr int blocksPerStep = 2;
+    constexpr double stepMs = 1000.0 * blocksPerStep * 512 / 48000.0;
+    for (double elapsed = 0.0; elapsed < milliseconds; elapsed += stepMs)
+    {
+        process(processor, blocksPerStep, frequency);
+        juce::Thread::sleep(static_cast<int>(stepMs));
+    }
+}
+
+bool waitForSteadyCarrier(HdnRingmodAudioProcessor& processor, float frequency)
+{
+    auto deadline = juce::Time::getMillisecondCounterHiRes() + 8000.0;
+    int steady = 0;
+    while (juce::Time::getMillisecondCounterHiRes() < deadline && steady < 12)
+    {
+        processInRealTime(processor, 20.0, frequency);
+        auto locked = processor.currentCarrierHz.load() > 0.0f && processor.currentConfidence.load() > 0.5f;
+        steady = locked ? steady + 1 : 0;
+    }
+    return steady >= 12;
+}
+
 void process(HdnRingmodAudioProcessor& processor, int blocks, float frequency)
 {
     juce::AudioBuffer<float> buffer(2, 512);
@@ -323,17 +351,7 @@ TEST_CASE("Processor: publishes the carrier it actually runs and counts processe
 
     setPlain(processor.apvts, ParameterIDs::rateMultiplier, 2.0f);
     setPlain(processor.apvts, ParameterIDs::sensitivity, 0.0f);
-    auto deadline = juce::Time::getMillisecondCounterHiRes() + 3000.0;
-    while (juce::Time::getMillisecondCounterHiRes() < deadline && processor.currentCarrierHz.load() <= 0.0f)
-    {
-        process(processor, 4, 220.0f);
-        juce::Thread::sleep(2);
-    }
-    for (int i = 0; i < 40; ++i)
-    {
-        process(processor, 4, 220.0f);
-        juce::Thread::sleep(2);
-    }
+    REQUIRE(waitForSteadyCarrier(processor, 220.0f));
     REQUIRE_THAT(processor.currentCarrierHz.load(), Catch::Matchers::WithinRel(440.0f, 0.02f));
     processor.releaseResources();
 }
@@ -368,21 +386,18 @@ TEST_CASE("Editor: renders every display state for review")
     };
 
     setPlain(processor.apvts, ParameterIDs::rateMultiplier, 2.0f);
-    auto deadline = juce::Time::getMillisecondCounterHiRes() + 3000.0;
-    while (juce::Time::getMillisecondCounterHiRes() < deadline && processor.currentCarrierHz.load() <= 0.0f)
-        process(processor, 4, 110.0f);
-    process(processor, 60, 110.0f);
+    REQUIRE(waitForSteadyCarrier(processor, 110.0f));
     refresh();
     capture("hdn-ring-modulator-tracking", 1.0f);
     capture("hdn-ring-modulator-tracking@2x", 2.0f);
 
-    process(processor, 200, 0.0f);
+    processInRealTime(processor, 300.0, 0.0f);
     refresh();
     capture("hdn-ring-modulator-listening", 1.0f);
 
     setPlain(processor.apvts, ParameterIDs::mode, 1.0f);
     setPlain(processor.apvts, ParameterIDs::waveform, 2.0f);
-    process(processor, 20, 110.0f);
+    processInRealTime(processor, 100.0, 110.0f);
     refresh();
     capture("hdn-ring-modulator-manual", 1.0f);
 
