@@ -1,11 +1,11 @@
 # HDN Ring Modulator
 
-[![Build](https://github.com/user1303836/hdn-ringmod/actions/workflows/build.yml/badge.svg)](https://github.com/user1303836/hdn-ringmod/actions/workflows/build.yml)
+[![Build](https://github.com/affinedsp/hdn-ringmod/actions/workflows/build.yml/badge.svg)](https://github.com/affinedsp/hdn-ringmod/actions/workflows/build.yml)
 
 A pitch-tracking ring modulator audio plugin (VST3/AU/Standalone) built with JUCE 8.
 
 <p align="center">
-  <img src="img/hdn-ring-modulator-ui.png" alt="HDN Ring Modulator plugin interface" width="780">
+  <img src="img/hdn-ring-modulator-ui.png" alt="HDN Ring Modulator tracking an A2 at 110 Hz: cyan input-pitch display locked, Nixie counter showing a 220 Hz carrier at a 2x rate multiplier, and the Tracking, Carrier and Output controls" width="900">
 </p>
 
 ## What Is This?
@@ -17,6 +17,17 @@ This plugin adds **pitch tracking**. It listens to your input, detects the funda
 The plugin also has a conventional **Manual** mode where the oscillator runs at a fixed frequency, for traditional ring mod sounds.
 
 Four oscillator waveforms are available (sine, triangle, square, saw), each producing a different harmonic character. Square and saw use PolyBLEP anti-aliasing to reduce digital artifacts.
+
+## Interface
+
+The panel reads left to right in signal order: what the tracker hears, the carrier it drives, and the controls for each stage.
+
+- **Input pitch** (cyan display): the detected note and frequency. **LOCK** lights only while the carrier is actually following the input. The confidence bar shows how certain the detector is, and the marker under it is the **Sensitivity** threshold a detection must clear. The display reads *LISTENING* while the tracker searches, *NO AUDIO* when the host is not processing, and *OFF* in Manual mode.
+- **Carrier frequency** (Nixie counter): the frequency the carrier oscillator is running at, published by the processor rather than estimated in the UI, with a trace of the selected waveform. The tubes go dark while the effect stays dry.
+- **Source** keys switch between Pitch Track and Manual. Controls that do not act in the current source keep working but show it: their activity lamp goes out and their readout dims.
+- **Waveform** keys select the carrier shape.
+
+Knobs have calibrated scales. Drag anywhere on a knob (up or right increases, Shift for fine), double-click or press Return to type an exact value, Alt/Option-click or Home to reset, and right-click for the parameter menu. The interface follows the shared [Affine design language](libs/affine-ui/DESIGN_LANGUAGE.md).
 
 ## Requirements
 
@@ -30,7 +41,7 @@ Four oscillator waveforms are available (sine, triangle, square, saw), each prod
 Clone with submodules (JUCE is pinned as a git submodule):
 
 ```bash
-git clone --recursive https://github.com/user1303836/hdn-ringmod.git
+git clone --recursive https://github.com/affinedsp/hdn-ringmod.git
 cd hdn-ringmod
 ```
 
@@ -89,6 +100,8 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release -DHDN_BUILD_TESTS=ON
 cmake --build build --config Release
 ctest --test-dir build --build-config Release --output-on-failure
 ```
+
+Set `HDN_UI_CAPTURE_DIR` to an absolute directory to have the tests render the editor in every display state (tracked, listening, manual, no audio) and at 125–200% scaling.
 
 ## Parameters
 
