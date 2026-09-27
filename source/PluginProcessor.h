@@ -42,6 +42,9 @@ public:
 
     std::atomic<float> currentPitchHz { 0.0f };
     std::atomic<float> currentConfidence { 0.0f };
+    // Frequency the carrier actually ran at the end of the last block; 0 while the effect is dry.
+    std::atomic<float> currentCarrierHz { 0.0f };
+    std::atomic<uint32_t> processedBlocks { 0 };
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();

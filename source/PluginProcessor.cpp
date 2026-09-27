@@ -137,6 +137,8 @@ void HdnRingmodAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
         channelPtrs[ch] = buffer.getWritePointer(ch);
     }
 
+    float carrierHz = 0.0f;
+
     for (int i = 0; i < numSamples; ++i)
     {
         float mix = smoothedMix.getNextValue();
@@ -165,11 +167,13 @@ void HdnRingmodAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
                 oscillator.setFrequency(oscFreq);
 
             effectiveMix *= smoothedTrackEnable;
+            carrierHz = smoothedTrackEnable > 0.0f ? oscFreq : 0.0f;
         }
         else
         {
             smoothedTrackEnable = 1.0f;
-            oscillator.setFrequency(smoothedManualRate.getNextValue());
+            carrierHz = smoothedManualRate.getNextValue();
+            oscillator.setFrequency(carrierHz);
         }
 
         float oscSample = oscillator.nextSample();
@@ -185,6 +189,8 @@ void HdnRingmodAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
         }
     }
 
+    currentCarrierHz.store(carrierHz, std::memory_order_relaxed);
+
     if (mode == 0)
     {
         auto result = pitchDetector.getResult();
@@ -196,6 +202,8 @@ void HdnRingmodAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
         currentPitchHz.store(0.0f, std::memory_order_relaxed);
         currentConfidence.store(0.0f, std::memory_order_relaxed);
     }
+
+    processedBlocks.fetch_add(1, std::memory_order_release);
 }
 
 juce::AudioProcessorEditor* HdnRingmodAudioProcessor::createEditor()
