@@ -8,7 +8,7 @@ constexpr float pitchConfidence = 0.1f;
 constexpr double freshnessMs = 400.0;
 
 const juce::Rectangle<int> modeArea { 690, 22, 170, 64 };
-const juce::Rectangle<int> inputArea { 40, 122, 330, 116 };
+const juce::Rectangle<int> inputArea { 40, 118, 330, 124 };
 const juce::Rectangle<int> carrierArea { 412, 118, 448, 124 };
 const juce::Rectangle<float> trackingFrame { 32.0f, 274.0f, 240.0f, 194.0f };
 const juce::Rectangle<float> carrierFrame { 284.0f, 274.0f, 424.0f, 194.0f };
@@ -153,7 +153,7 @@ void PitchDisplay::paint(juce::Graphics& g)
     const auto legendColour = [&](bool lit) { return lit ? vfd.withAlpha(0.9f) : unlit.brighter(0.35f); };
 
     // Fourteen-segment note, its unlit segments faintly visible behind it.
-    const auto noteArea = juce::Rectangle<float>(20.0f, 12.0f, 150.0f, 58.0f);
+    const auto noteArea = juce::Rectangle<float>(20.0f, 16.0f, 150.0f, 58.0f);
     const auto noteFont = affine::fonts::segment(44.0f, 0.05f);
     g.setColour(unlit);
     g.setFont(noteFont);
@@ -182,11 +182,11 @@ void PitchDisplay::paint(juce::Graphics& g)
 
     const auto strength = hasPitch() && !locked ? 0.45f : 1.0f;
     noteGlow.draw(g, note, noteFont, noteArea, juce::Justification::centredLeft, vfd.withMultipliedAlpha(strength), 3.0f, 0.9f);
-    detailGlow.draw(g, detail, affine::fonts::readout(15.0f, 0.08f), { 22.0f, 78.0f, 190.0f, 22.0f },
+    detailGlow.draw(g, detail, affine::fonts::readout(15.0f, 0.08f), { 22.0f, 82.0f, 190.0f, 22.0f },
                     juce::Justification::centredLeft, vfd.withMultipliedAlpha(trackingMode && !live ? 0.55f : 0.95f), 2.2f, 0.6f);
 
     // Lock lamp: lit only while the tracked carrier is actually running.
-    const auto column = juce::Rectangle<float>(214.0f, 16.0f, 100.0f, 84.0f);
+    const auto column = juce::Rectangle<float>(214.0f, 20.0f, 100.0f, 84.0f);
     affine::render::lamp(g, { column.getX() + 6.0f, column.getY() + 8.0f }, 7.0f, vfd, locked ? 1.0f : 0.0f);
     g.setFont(affine::fonts::label(11.0f, 0.22f));
     g.setColour(legendColour(locked));
