@@ -1,25 +1,67 @@
 #pragma once
 
-#include "PluginLookAndFeel.h"
 #include "PluginProcessor.h"
-#include <juce_gui_basics/juce_gui_basics.h>
+#include <affine_ui/affine_ui.h>
 
-class PitchDisplay final : public juce::Component
+namespace RingmodTheme
+{
+// Petrol anodising, neon-orange Nixie carrier and a cyan vacuum-fluorescent input display.
+affine::Theme theme();
+affine::Theme inputDisplayTheme();
+}
+
+class PitchDisplay final : public juce::Component,
+                           public juce::SettableTooltipClient
 {
 public:
-    void setState(float detectedPitchHz, float confidence, bool pitchTracking,
-                  float manualRateHz);
+    PitchDisplay();
+
+    void setTheme(const affine::Theme&);
+    void setState(float detectedPitchHz, float confidence, bool pitchTracking, float manualRateHz,
+                  float acceptanceThreshold, bool carrierRunning, bool audioLive);
     void paint(juce::Graphics&) override;
     std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
 
-private:
-    class ValueInterface;
     juce::String getAccessibleValueText() const;
 
+private:
+    class ValueInterface;
+    bool hasPitch() const;
+
+    affine::Theme theme;
+    affine::render::GlowText noteGlow, detailGlow;
     float pitchHz = 0.0f;
     float confidenceValue = 0.0f;
     float manualRate = 440.0f;
+    float threshold = 0.5f;
     bool trackingMode = true;
+    bool locked = false;
+    bool live = false;
+};
+
+class CarrierDisplay final : public juce::Component,
+                             public juce::SettableTooltipClient
+{
+public:
+    CarrierDisplay();
+
+    void setTheme(const affine::Theme&);
+    void setState(float carrierHz, int waveformIndex);
+    void paint(juce::Graphics&) override;
+    void resized() override;
+    std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
+
+    static juce::String formatFrequency(float hz);
+    const affine::NixieDisplay& getCounter() const { return counter; }
+
+private:
+    class ValueInterface;
+
+    affine::Theme theme;
+    affine::NixieDisplay counter;
+    affine::render::GlowLayer trace, unit;
+    float carrier = 0.0f;
+    int waveform = 0;
 };
 
 class HdnRingmodAudioProcessorEditor : public juce::AudioProcessorEditor,
@@ -31,31 +73,29 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
+    int getControlParameterIndex(juce::Component&) override;
+
+    static constexpr int width = 900;
+    static constexpr int height = 490;
 
 private:
     void timerCallback() override;
     void updateModePresentation();
-    void paintPanel(juce::Graphics&, juce::Rectangle<int>, const juce::String&) const;
+    void print(juce::Graphics&);
 
     HdnRingmodAudioProcessor& processorRef;
-    PluginLookAndFeel lookAndFeel;
+    affine::Theme theme;
+    affine::LookAndFeel lookAndFeel;
+    affine::Faceplate faceplate;
     PitchDisplay pitchDisplay;
+    CarrierDisplay carrierDisplay;
 
-    ParameterSlider mixSlider, rateMultSlider, manualRateSlider, smoothingSlider, sensitivitySlider;
-    juce::Label mixLabel, rateMultLabel, manualRateLabel, smoothingLabel, sensitivityLabel;
+    affine::Knob smoothingKnob, sensitivityKnob, rateMultKnob, manualRateKnob, mixKnob;
+    affine::SelectorKeys modeKeys, waveformKeys;
 
-    juce::ComboBox modeBox, waveformBox;
-    juce::Label modeLabel, waveformLabel;
-
-    juce::Rectangle<int> trackerBounds, sourceBounds, carrierBounds, trackingBounds, outputBounds;
+    uint32_t lastBlockCount = 0;
+    double lastBlockMs = 0.0;
     int lastModeIndex = -1;
-
-    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
-
-    std::unique_ptr<SliderAttachment> mixAttach, rateMultAttach, manualRateAttach,
-                                       smoothingAttach, sensitivityAttach;
-    std::unique_ptr<ComboBoxAttachment> modeAttach, waveformAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HdnRingmodAudioProcessorEditor)
 };
