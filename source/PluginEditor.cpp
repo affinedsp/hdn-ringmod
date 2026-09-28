@@ -2,6 +2,45 @@
 #include "NoteNames.h"
 #include "ParameterIDs.h"
 
+namespace
+{
+constexpr float pitchConfidence = 0.1f;
+constexpr double freshnessMs = 400.0;
+
+// Layout, in logical pixels.
+const juce::Rectangle<int> modeArea { 752, 18, 172, 64 };
+const juce::Rectangle<int> screenArea { 36, 94, 888, 222 };
+const juce::Rectangle<int> inputArea { 59, 113, 250, 185 };
+const juce::Rectangle<int> carrierArea { 333, 113, 568, 185 };
+const juce::Rectangle<int> waveformArea { 644, 370, 128, 152 };
+constexpr int knobCentreY = 452;
+
+juce::String whole(double value)
+{
+    return juce::String(juce::roundToInt(value));
+}
+
+// One cycle of the carrier's waveform at `phase` in [0, 1), as the oscillator computes it.
+float carrierShape(int waveform, double phase)
+{
+    switch (waveform)
+    {
+        case 1:  return static_cast<float>(2.0 * std::abs(2.0 * phase - 1.0) - 1.0);
+        case 2:  return phase < 0.5 ? 1.0f : -1.0f;
+        case 3:  return static_cast<float>(2.0 * phase - 1.0);
+        default: return static_cast<float>(std::sin(juce::MathConstants<double>::twoPi * phase));
+    }
+}
+}
+
+affine::Theme RingmodTheme::theme()
+{
+    affine::Theme t;
+    t.palette.screen = juce::Colour(0xffffb23f);
+    return t;
+}
+
+//==============================================================================
 class PitchDisplay::ValueInterface final : public juce::AccessibilityValueInterface
 {
 public:
@@ -24,26 +63,51 @@ private:
     PitchDisplay& display;
 };
 
-void PitchDisplay::setState(float detectedPitchHz, float confidence, bool pitchTracking,
-                            float manualRateHz)
+PitchDisplay::PitchDisplay()
 {
-    auto pitchChanged = juce::roundToInt(pitchHz * 10.0f)
-                        != juce::roundToInt(detectedPitchHz * 10.0f);
-    auto confidenceChanged = juce::roundToInt(confidenceValue * 100.0f)
-                             != juce::roundToInt(confidence * 100.0f)
-                          || (confidenceValue > 0.1f) != (confidence > 0.1f);
-    auto modeChanged = trackingMode != pitchTracking;
-    auto manualRateChanged = juce::roundToInt(manualRate * 10.0f)
-                          != juce::roundToInt(manualRateHz * 10.0f);
+    setTitle("Input pitch");
+    setTooltip("Tracked input pitch. The carrier runs once the signal bar reaches the Sensitivity mark.");
+}
 
-    if (!pitchChanged && !confidenceChanged && !modeChanged && !manualRateChanged)
+void PitchDisplay::setTheme(const affine::Theme& t)
+{
+    theme = t;
+    repaint();
+}
+
+bool PitchDisplay::hasPitch() const
+{
+    return trackingMode && live && pitchHz > 0.0f && confidenceValue > pitchConfidence;
+}
+
+float PitchDisplay::getCents() const
+{
+    if (pitchHz <= 0.0f)
+        return 0.0f;
+    const auto midi = 69.0f + 12.0f * std::log2(pitchHz / 440.0f);
+    return (midi - std::round(midi)) * 100.0f;
+}
+
+void PitchDisplay::setState(float detectedPitchHz, float confidence, bool pitchTracking, float manualRateHz,
+                            float acceptanceThreshold, bool carrierRunning, bool audioLive)
+{
+    auto pitchChanged = juce::roundToInt(pitchHz * 10.0f) != juce::roundToInt(detectedPitchHz * 10.0f);
+    auto confidenceChanged = juce::roundToInt(confidenceValue * 100.0f) != juce::roundToInt(confidence * 100.0f);
+    auto thresholdChanged = juce::roundToInt(threshold * 100.0f) != juce::roundToInt(acceptanceThreshold * 100.0f);
+    auto manualRateChanged = juce::roundToInt(manualRate * 10.0f) != juce::roundToInt(manualRateHz * 10.0f);
+    auto stateChanged = trackingMode != pitchTracking || locked != carrierRunning || live != audioLive;
+
+    if (!pitchChanged && !confidenceChanged && !thresholdChanged && !manualRateChanged && !stateChanged)
         return;
 
     auto previousAccessibleValue = getAccessibleValueText();
     pitchHz = detectedPitchHz;
     confidenceValue = confidence;
-    trackingMode = pitchTracking;
+    threshold = acceptanceThreshold;
     manualRate = manualRateHz;
+    trackingMode = pitchTracking;
+    locked = carrierRunning;
+    live = audioLive;
     auto accessibleValue = getAccessibleValueText();
     setDescription(accessibleValue);
     repaint();
@@ -58,10 +122,13 @@ juce::String PitchDisplay::getAccessibleValueText() const
     if (!trackingMode)
         return "Manual carrier, " + juce::String(manualRate, 1) + " hertz";
 
-    if (pitchHz > 0.0f && confidenceValue > 0.1f)
+    if (!live)
+        return "No audio";
+
+    if (hasPitch())
         return juce::String(NoteNames::fromFrequency(pitchHz).c_str()) + ", "
-             + juce::String(pitchHz, 1) + " hertz, locked, confidence "
-             + juce::String(juce::roundToInt(confidenceValue * 100.0f)) + " percent";
+             + juce::String(pitchHz, 1) + " hertz, " + (locked ? "locked" : "below sensitivity")
+             + ", confidence " + juce::String(juce::roundToInt(confidenceValue * 100.0f)) + " percent";
 
     return "Listening for input pitch";
 }
@@ -73,162 +140,382 @@ std::unique_ptr<juce::AccessibilityHandler> PitchDisplay::createAccessibilityHan
         juce::AccessibilityHandler::Interfaces { std::make_unique<ValueInterface>(*this) });
 }
 
-void PitchDisplay::paint(juce::Graphics& graphics)
+void PitchDisplay::paint(juce::Graphics& g)
 {
-    auto bounds = getLocalBounds();
-    auto left = bounds.removeFromLeft(juce::roundToInt(static_cast<float>(bounds.getWidth()) * 0.58f));
-    auto right = bounds.reduced(14, 2);
-    auto hasPitch = trackingMode && pitchHz > 0.0f && confidenceValue > 0.1f;
+    const auto screenColour = theme.palette.screen;
+    auto area = getLocalBounds().toFloat();
+    auto header = area.removeFromTop(15.0f);
+    affine::screen::caption(g, "INPUT", header, screenColour);
 
-    juce::String primary;
-    juce::String secondary;
-    juce::String status;
-    juce::Colour statusColour;
+    // Lock lamp: lit only while the tracked carrier is actually running.
+    const auto lamp = juce::Point<float>(header.getRight() - 40.0f, header.getCentreY());
+    if (locked)
+        affine::render::halo(g, lamp, 9.0f, screenColour, 0.6f);
+    g.setColour(locked ? affine::screen::lit(screenColour) : screenColour.withAlpha(0.18f));
+    g.fillEllipse(juce::Rectangle<float>(6.0f, 6.0f).withCentre(lamp));
+    affine::screen::caption(g, "LOCK", header.withLeft(lamp.x + 8.0f), screenColour, juce::Justification::centredLeft, locked ? 0.95f : 0.3f);
 
+    juce::String note = "--", detail, cents;
     if (!trackingMode)
     {
-        primary = "MANUAL";
-        secondary = juce::String(manualRate, 1) + " Hz";
-        status = "FIXED SOURCE";
-        statusColour = PluginTheme::accent;
+        note = "OFF";
+        detail = "MANUAL CARRIER";
     }
-    else if (hasPitch)
+    else if (!live)
     {
-        primary = NoteNames::fromFrequency(pitchHz).c_str();
-        secondary = juce::String(pitchHz, 1) + " Hz";
-        status = "LOCKED";
-        statusColour = PluginTheme::accent;
+        detail = "NO AUDIO";
+    }
+    else if (hasPitch())
+    {
+        note = NoteNames::fromFrequency(pitchHz).c_str();
+        detail = juce::String(pitchHz, 1) + " HZ";
+        const auto deviation = juce::roundToInt(getCents());
+        cents = (deviation > 0 ? "+" : "") + juce::String(deviation) + " CENTS";
     }
     else
     {
-        primary = "LISTENING";
-        secondary = "Play a note to begin";
-        status = "LISTENING";
-        statusColour = PluginTheme::warning;
+        detail = "LISTENING";
     }
 
-    graphics.setColour(PluginTheme::primaryText);
-    graphics.setFont(PluginTheme::makeFont(trackingMode && hasPitch ? 50.0f : 34.0f, true));
-    graphics.drawFittedText(primary, left.removeFromTop(54), juce::Justification::centredLeft, 1);
+    const auto noteLevel = hasPitch() ? (locked ? 1.0f : 0.55f) : 0.3f;
+    noteGlow.draw(g, note, affine::fonts::readout(54.0f), area.removeFromTop(56.0f), juce::Justification::centredLeft,
+                  affine::screen::lit(screenColour, noteLevel), 4.0f, 0.4f + 0.5f * noteLevel);
 
-    graphics.setColour(PluginTheme::secondaryText);
-    graphics.setFont(trackingMode && hasPitch ? PluginTheme::makeFont(18.0f, false, 0.03f) : PluginTheme::makeFont(16.0f));
-    graphics.drawFittedText(secondary, left.removeFromTop(26), juce::Justification::centredLeft, 1);
+    auto details = area.removeFromTop(16.0f);
+    g.setFont(affine::fonts::readout(15.0f, 0.04f));
+    g.setColour(hasPitch() ? affine::screen::lit(screenColour, 0.9f) : screenColour.withAlpha(0.5f));
+    g.drawText(detail, details, juce::Justification::centredLeft, false);
+    g.drawText(cents, details, juce::Justification::centredRight, false);
 
-    auto dividerX = static_cast<float>(bounds.getX() - 1);
-    graphics.setColour(PluginTheme::border);
-    graphics.drawVerticalLine(juce::roundToInt(dividerX), 2.0f,
-                              static_cast<float>(getHeight() - 2));
-
-    graphics.setColour(PluginTheme::secondaryText);
-    graphics.setFont(PluginTheme::makeFont(11.5f, true, 0.10f));
-    graphics.drawText("STATUS", right.removeFromTop(16), juce::Justification::centredLeft);
-
-    auto statusRow = right.removeFromTop(28);
-    graphics.setColour(statusColour);
-    graphics.fillEllipse(static_cast<float>(statusRow.getX()),
-                         static_cast<float>(statusRow.getCentreY() - 3), 6.0f, 6.0f);
-    graphics.setFont(PluginTheme::makeFont(15.0f, true, 0.04f));
-    graphics.drawText(status, statusRow.withTrimmedLeft(14), juce::Justification::centredLeft);
-
-    if (trackingMode)
-    {
-        auto confidence = juce::jlimit(0.0f, 1.0f, confidenceValue);
-        graphics.setColour(PluginTheme::secondaryText);
-        graphics.setFont(PluginTheme::makeFont(11.0f, true, 0.08f));
-        graphics.drawText("CONFIDENCE  " + juce::String(juce::roundToInt(confidence * 100.0f)) + "%",
-                          right.removeFromTop(18), juce::Justification::centredLeft);
-
-        auto meter = right.removeFromTop(4).toFloat();
-        graphics.setColour(PluginTheme::border);
-        graphics.fillRoundedRectangle(meter, 2.0f);
-        meter.setWidth(meter.getWidth() * confidence);
-        graphics.setColour(hasPitch ? PluginTheme::accent : PluginTheme::warning);
-        graphics.fillRoundedRectangle(meter, 2.0f);
-    }
-    else
-    {
-        graphics.setColour(PluginTheme::secondaryText);
-        graphics.setFont(PluginTheme::makeFont(11.0f, true, 0.08f));
-        graphics.drawText("HOST-AUTOMATABLE", right.removeFromTop(18),
-                          juce::Justification::centredLeft);
-    }
+    area.removeFromTop(10.0f);
+    paintTuner(g, area.removeFromTop(28.0f));
+    area.removeFromTop(6.0f);
+    paintSignal(g, area);
 }
 
+void PitchDisplay::paintTuner(juce::Graphics& g, juce::Rectangle<float> area)
+{
+    const auto screenColour = theme.palette.screen;
+    // Cents from the nearest note, -50 to +50, centred.
+    const auto line = area.removeFromTop(14.0f);
+    const auto y = line.getCentreY();
+    const auto xFor = [&](float c) { return line.getX() + line.getWidth() * (juce::jlimit(-50.0f, 50.0f, c) + 50.0f) / 100.0f; };
+    for (int c = -50; c <= 50; c += 10)
+    {
+        const auto major = c % 50 == 0;
+        g.setColour(screenColour.withAlpha(major ? 0.55f : 0.25f));
+        const auto half = major ? 6.0f : 3.0f;
+        g.fillRect(xFor(static_cast<float>(c)) - 0.5f, y - half, 1.0f, half * 2.0f);
+    }
+    g.setColour(screenColour.withAlpha(0.18f));
+    g.fillRect(line.getX(), y - 0.5f, line.getWidth(), 1.0f);
+
+    if (hasPitch())
+    {
+        const auto x = xFor(getCents());
+        const auto centre = xFor(0.0f);
+        const auto level = locked ? 1.0f : 0.55f;
+        g.setColour(screenColour.withAlpha(0.45f * level));
+        g.fillRect(juce::jmin(x, centre), y - 1.5f, std::abs(x - centre), 3.0f);
+        affine::render::halo(g, { x, y }, 10.0f, screenColour, 0.5f * level);
+        g.setColour(affine::screen::lit(screenColour, level));
+        g.fillRoundedRectangle(juce::Rectangle<float>(3.0f, 16.0f).withCentre({ x, y }), 1.5f);
+    }
+
+    g.setFont(affine::fonts::label(9.5f, 0.04f));
+    g.setColour(screenColour.withAlpha(0.45f));
+    g.drawText("-50", area.withWidth(30.0f), juce::Justification::centredLeft, false);
+    g.drawText("TUNING", area, juce::Justification::centred, false);
+    g.drawText("+50", area.withLeft(area.getRight() - 30.0f), juce::Justification::centredRight, false);
+}
+
+void PitchDisplay::paintSignal(juce::Graphics& g, juce::Rectangle<float> area)
+{
+    const auto screenColour = theme.palette.screen;
+    // Detection confidence against the Sensitivity threshold that gates the carrier.
+    const auto active = trackingMode && live;
+    auto header = area.removeFromTop(15.0f);
+    affine::screen::caption(g, "SIGNAL", header, screenColour, juce::Justification::centredLeft, trackingMode ? 0.85f : 0.4f);
+    g.setFont(affine::fonts::readout(14.0f));
+    g.setColour(active ? affine::screen::lit(screenColour, 0.9f) : screenColour.withAlpha(0.35f));
+    g.drawText(active ? whole(confidenceValue * 100.0f) + " %" : juce::String("--"), header,
+               juce::Justification::centredRight, false);
+
+    area.removeFromTop(6.0f);
+    const auto bar = area.removeFromTop(10.0f);
+    affine::screen::segments(g, bar, 32, active ? confidenceValue : -1.0f, [&](float position, bool on)
+    {
+        const auto accepted = position >= threshold;
+        return on ? (accepted ? affine::screen::lit(screenColour) : screenColour.withAlpha(0.5f))
+                  : screenColour.withAlpha(accepted ? 0.14f : 0.08f);
+    });
+
+    const auto mark = bar.getX() + bar.getWidth() * juce::jlimit(0.0f, 1.0f, threshold);
+    g.setColour(juce::Colours::white.withAlpha(trackingMode ? 0.85f : 0.3f));
+    g.fillRect(mark - 1.0f, bar.getY() - 4.0f, 2.0f, bar.getHeight() + 8.0f);
+    g.setFont(affine::fonts::label(9.5f, 0.12f));
+    g.setColour(screenColour.withAlpha(0.55f));
+    g.drawText("SENS", juce::Rectangle<float>(40.0f, 12.0f).withCentre({ juce::jlimit(bar.getX() + 20.0f, bar.getRight() - 20.0f, mark),
+                                                                          bar.getBottom() + 9.0f }),
+               juce::Justification::centred, false);
+}
+
+//==============================================================================
+class CarrierDisplay::ValueInterface final : public juce::AccessibilityValueInterface
+{
+public:
+    explicit ValueInterface(CarrierDisplay& displayToUse) : display(displayToUse) {}
+
+    bool isReadOnly() const override { return true; }
+    double getCurrentValue() const override { return display.carrier; }
+    juce::String getCurrentValueAsString() const override
+    {
+        return display.carrier > 0.0f ? juce::String(display.carrier, 1) + " hertz" : "Carrier off";
+    }
+    void setValue(double) override {}
+    void setValueAsString(const juce::String&) override {}
+    AccessibleValueRange getRange() const override { return {}; }
+
+private:
+    CarrierDisplay& display;
+};
+
+CarrierDisplay::CarrierDisplay()
+{
+    setTitle("Carrier frequency");
+    setTooltip("The carrier oscillator: its waveform and the frequency it is running at. While tracking, the scope spans two periods of the input pitch; it stays flat while the effect is dry.");
+}
+
+void CarrierDisplay::setTheme(const affine::Theme& t)
+{
+    theme = t;
+    repaint();
+}
+
+juce::String CarrierDisplay::formatFrequency(float hz)
+{
+    return hz > 0.0f ? juce::String(juce::jmin(hz, 99999.9f), 1) : juce::String();
+}
+
+void CarrierDisplay::setReference(bool pitchTracking, float inputPitchHz)
+{
+    if (tracking == pitchTracking && juce::roundToInt(reference * 10.0f) == juce::roundToInt(inputPitchHz * 10.0f))
+        return;
+    tracking = pitchTracking;
+    reference = inputPitchHz;
+    repaint();
+}
+
+void CarrierDisplay::setState(float carrierHz, int waveformIndex)
+{
+    const auto changed = juce::roundToInt(carrier * 10.0f) != juce::roundToInt(carrierHz * 10.0f);
+    if (!changed && waveformIndex == waveform)
+        return;
+
+    const auto wasRunning = carrier > 0.0f;
+    carrier = carrierHz;
+    waveform = waveformIndex;
+    repaint();
+
+    if (wasRunning != (carrier > 0.0f))
+        if (auto* handler = getAccessibilityHandler())
+            handler->notifyAccessibilityEvent(juce::AccessibilityEvent::valueChanged);
+}
+
+std::unique_ptr<juce::AccessibilityHandler> CarrierDisplay::createAccessibilityHandler()
+{
+    return std::make_unique<juce::AccessibilityHandler>(
+        *this, juce::AccessibilityRole::staticText, juce::AccessibilityActions {},
+        juce::AccessibilityHandler::Interfaces { std::make_unique<ValueInterface>(*this) });
+}
+
+void CarrierDisplay::paint(juce::Graphics& g)
+{
+    const auto screenColour = theme.palette.screen;
+    auto area = getLocalBounds().toFloat();
+    paintScope(g, area.removeFromLeft(320.0f));
+    area.removeFromLeft(12.0f);
+    g.setColour(screenColour.withAlpha(0.10f));
+    g.fillRect(area.getX() - 0.5f, area.getY() + 4.0f, 1.0f, area.getHeight() - 8.0f);
+    area.removeFromLeft(12.0f);
+
+    const auto running = carrier > 0.0f;
+    static const char* names[] = { "SINE", "TRIANGLE", "SQUARE", "SAW" };
+    auto header = area.removeFromTop(15.0f);
+    affine::screen::caption(g, "CARRIER", header, screenColour);
+    affine::screen::caption(g, names[juce::jlimit(0, 3, waveform)], header, screenColour, juce::Justification::centredRight, 0.6f);
+
+    area.removeFromTop(8.0f);
+    readout.draw(g, running ? formatFrequency(carrier) : juce::String("----"), affine::fonts::readout(44.0f),
+                 area.removeFromTop(52.0f), juce::Justification::centredRight, running ? affine::screen::lit(screenColour) : screenColour.withAlpha(0.3f),
+                 4.0f, running ? 0.9f : 0.3f);
+    affine::screen::caption(g, "HZ", area.removeFromTop(14.0f), screenColour, juce::Justification::centredRight, running ? 0.85f : 0.4f);
+
+    area.removeFromTop(16.0f);
+    g.setColour(screenColour.withAlpha(0.10f));
+    g.fillRect(area.getX(), area.getY(), area.getWidth(), 1.0f);
+    area.removeFromTop(10.0f);
+
+    // The carrier as a note, and its ratio to the input pitch it follows.
+    auto row = [&](const juce::String& name, const juce::String& value)
+    {
+        auto line = area.removeFromTop(24.0f);
+        affine::screen::caption(g, name, line, screenColour, juce::Justification::centredLeft, 0.6f);
+        g.setFont(affine::fonts::readout(17.0f));
+        g.setColour(running ? affine::screen::lit(screenColour, 0.9f) : screenColour.withAlpha(0.35f));
+        g.drawText(value, line, juce::Justification::centredRight, false);
+    };
+    row("NOTE", running ? juce::String(NoteNames::fromFrequency(carrier).c_str()) : juce::String("--"));
+    row("RATIO", running && reference > 0.0f ? juce::String(carrier / reference, 2) + "x" : running ? juce::String("MANUAL") : juce::String("--"));
+}
+
+void CarrierDisplay::paintScope(juce::Graphics& g, juce::Rectangle<float> area)
+{
+    const auto screenColour = theme.palette.screen;
+    // While tracking, the window is two periods of the input; a fixed carrier gets 10 ms.
+    const auto periods = tracking && (reference > 0.0f || carrier <= 0.0f);
+    auto header = area.removeFromTop(15.0f);
+    affine::screen::caption(g, "WAVE", header, screenColour);
+    affine::screen::caption(g, periods ? "TWO INPUT PERIODS" : "10 MS", header, screenColour, juce::Justification::centredRight, 0.45f);
+
+    area.removeFromTop(12.0f);
+    const auto axis = area.removeFromBottom(14.0f);
+    const auto plot = area.reduced(0.0f, 4.0f);
+    const auto mid = plot.getCentreY();
+    const auto amplitude = plot.getHeight() * 0.42f;
+
+    g.setColour(screenColour.withAlpha(0.07f));
+    g.fillRect(plot.getX(), mid - amplitude - 0.5f, plot.getWidth(), 1.0f);
+    g.fillRect(plot.getX(), mid + amplitude - 0.5f, plot.getWidth(), 1.0f);
+    g.setColour(screenColour.withAlpha(0.16f));
+    g.fillRect(plot.getX(), mid - 0.5f, plot.getWidth(), 1.0f);
+
+    const auto divisions = periods ? 2 : 10;
+    for (int i = 0; i <= divisions; ++i)
+    {
+        const auto x = plot.getX() + plot.getWidth() * static_cast<float>(i) / static_cast<float>(divisions);
+        const auto strong = periods || i % 5 == 0;
+        g.setColour(screenColour.withAlpha(strong ? 0.16f : 0.07f));
+        for (auto y = plot.getY(); y < plot.getBottom(); y += 4.0f)
+            g.fillRect(x - 0.5f, y, 1.0f, 1.5f);
+        if (strong)
+        {
+            g.setFont(affine::fonts::label(9.5f, 0.04f));
+            g.setColour(screenColour.withAlpha(0.45f));
+            const auto label = periods ? juce::String(i) : juce::String(i) + (i == divisions ? " MS" : "");
+            const auto just = i == 0 ? juce::Justification::centredLeft
+                            : i == divisions ? juce::Justification::centredRight : juce::Justification::centred;
+            const auto box = i == 0 ? axis.withX(x).withWidth(40.0f)
+                           : i == divisions ? axis.withRight(x).withLeft(x - 40.0f)
+                                            : juce::Rectangle<float>(40.0f, axis.getHeight()).withCentre({ x, axis.getCentreY() });
+            g.drawText(label, box, just, false);
+        }
+    }
+
+    if (carrier <= 0.0f)
+    {
+        affine::screen::caption(g, "DRY", plot.withBottom(mid - 4.0f), screenColour, juce::Justification::centredBottom, 0.35f);
+        return;
+    }
+
+    const auto window = periods ? 2.0 / reference : 0.010;
+    const auto cycles = static_cast<double>(carrier) * window;
+    const auto points = juce::jlimit(256, 6000, static_cast<int>(cycles * 64.0));
+    juce::Path wave;
+    for (int i = 0; i <= points; ++i)
+    {
+        const auto t = static_cast<double>(i) / points;
+        const auto phase = std::fmod(t * cycles, 1.0);
+        const juce::Point<float> at { plot.getX() + plot.getWidth() * static_cast<float>(t),
+                                      mid - amplitude * carrierShape(waveform, phase) };
+        if (i == 0)
+            wave.startNewSubPath(at);
+        else
+            wave.lineTo(at);
+    }
+    g.saveState();
+    g.reduceClipRegion(plot.expanded(0.0f, 6.0f).toNearestInt());
+    g.setColour(screenColour.withAlpha(0.16f));
+    g.strokePath(wave, juce::PathStrokeType(5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.setColour(affine::screen::lit(screenColour));
+    g.strokePath(wave, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.restoreState();
+}
+
+//==============================================================================
 HdnRingmodAudioProcessorEditor::HdnRingmodAudioProcessorEditor(HdnRingmodAudioProcessor& processor)
-    : AudioProcessorEditor(processor), processorRef(processor)
+    : AudioProcessorEditor(processor),
+      processorRef(processor),
+      theme(RingmodTheme::theme()),
+      lookAndFeel(theme),
+      smoothingKnob(processor.apvts, ParameterIDs::smoothing, "How quickly the carrier follows pitch changes."),
+      sensitivityKnob(processor.apvts, ParameterIDs::sensitivity,
+                      "Minimum detection confidence the tracker accepts; higher values require clearer notes."),
+      rateMultKnob(processor.apvts, ParameterIDs::rateMultiplier, "Carrier frequency as a multiple of the tracked pitch."),
+      manualRateKnob(processor.apvts, ParameterIDs::manualRate, "Fixed carrier frequency used in Manual mode."),
+      mixKnob(processor.apvts, ParameterIDs::mix, "Balance between the dry input and the ring-modulated signal."),
+      modeKeys(processor.apvts, ParameterIDs::mode),
+      waveformKeys(processor.apvts, ParameterIDs::waveform)
 {
     setLookAndFeel(&lookAndFeel);
     setOpaque(true);
 
-    auto setupSlider = [this](juce::Slider& slider, juce::Label& label,
-                              const juce::String& text)
-    {
-        addAndMakeVisible(slider);
-        slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        slider.setRotaryParameters(juce::MathConstants<float>::pi * 1.25f,
-                                   juce::MathConstants<float>::pi * 2.75f, true);
-        slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 88, 24);
-        slider.setWantsKeyboardFocus(true);
-        slider.setName(text);
-        slider.setTitle(text);
-
-        label.setText(text.toUpperCase(), juce::dontSendNotification);
-        label.setFont(PluginTheme::makeFont(12.0f, true, 0.08f));
-        label.setColour(juce::Label::textColourId, PluginTheme::secondaryText);
-        label.setJustificationType(juce::Justification::centred);
-        label.setInterceptsMouseClicks(false, false);
-        addAndMakeVisible(label);
-    };
-
-    setupSlider(mixSlider, mixLabel, "Mix");
-    setupSlider(rateMultSlider, rateMultLabel, "Rate Multiplier");
-    setupSlider(manualRateSlider, manualRateLabel, "Manual Rate");
-    setupSlider(smoothingSlider, smoothingLabel, "Smoothing");
-    setupSlider(sensitivitySlider, sensitivityLabel, "Sensitivity");
-
-    mixAttach = std::make_unique<SliderAttachment>(processor.apvts, ParameterIDs::mix, mixSlider);
-    rateMultAttach = std::make_unique<SliderAttachment>(processor.apvts, ParameterIDs::rateMultiplier,
-                                                        rateMultSlider);
-    manualRateAttach = std::make_unique<SliderAttachment>(processor.apvts, ParameterIDs::manualRate,
-                                                          manualRateSlider);
-    smoothingAttach = std::make_unique<SliderAttachment>(processor.apvts, ParameterIDs::smoothing,
-                                                         smoothingSlider);
-    sensitivityAttach = std::make_unique<SliderAttachment>(processor.apvts, ParameterIDs::sensitivity,
-                                                           sensitivitySlider);
-
-    auto setupCombo = [this, &processor](juce::ComboBox& box, juce::Label& label,
-                                        const juce::String& text, const juce::String& parameterID)
-    {
-        if (auto* parameter = dynamic_cast<juce::AudioParameterChoice*>(
-                processor.apvts.getParameter(parameterID)))
-            box.addItemList(parameter->choices, 1);
-
-        box.setJustificationType(juce::Justification::centredLeft);
-        box.setName(text);
-        box.setTitle(text);
-        addAndMakeVisible(box);
-
-        label.setText(text.toUpperCase(), juce::dontSendNotification);
-        label.setFont(PluginTheme::makeFont(11.5f, true, 0.08f));
-        label.setColour(juce::Label::textColourId, PluginTheme::secondaryText);
-        label.setJustificationType(juce::Justification::centredLeft);
-        label.setInterceptsMouseClicks(false, false);
-        addAndMakeVisible(label);
-    };
-
-    setupCombo(modeBox, modeLabel, "Source Mode", ParameterIDs::mode);
-    setupCombo(waveformBox, waveformLabel, "Carrier Shape", ParameterIDs::waveform);
-
-    modeAttach = std::make_unique<ComboBoxAttachment>(processor.apvts, ParameterIDs::mode, modeBox);
-    waveformAttach = std::make_unique<ComboBoxAttachment>(processor.apvts, ParameterIDs::waveform,
-                                                          waveformBox);
-
-    pitchDisplay.setTitle("Pitch monitor");
-    pitchDisplay.setDescription("Displays the detected input pitch and tracking confidence");
+    pitchDisplay.setTheme(theme);
+    carrierDisplay.setTheme(theme);
     addAndMakeVisible(pitchDisplay);
+    addAndMakeVisible(carrierDisplay);
 
-    setSize(780, 480);
+    const auto percent = [](double value) { return whole(value); };
+    smoothingKnob.setScale({ 0, 25, 50, 75, 100 }, percent);
+    sensitivityKnob.setScale({ 0, 25, 50, 75, 100 }, percent);
+    mixKnob.setScale({ 0, 25, 50, 75, 100 }, percent);
+    rateMultKnob.setScale({ 0.1, 0.5, 1, 2, 4, 8 },
+                          [](double value) { return value < 1.0 ? juce::String(value, 1) : whole(value); });
+    manualRateKnob.setScale({ 20, 100, 500, 1000, 5000 },
+                            [](double value) { return value >= 1000.0 ? whole(value / 1000.0) + "k" : whole(value); });
+    rateMultKnob.setKeyboardStep(0.01);
+    manualRateKnob.setKeyboardStep(1.0);
+
+    smoothingKnob.setDiameter(affine::metrics::knobSmall);
+    sensitivityKnob.setDiameter(affine::metrics::knobSmall);
+    rateMultKnob.setDiameter(affine::metrics::knobLarge);
+    manualRateKnob.setDiameter(affine::metrics::knobMedium);
+    mixKnob.setDiameter(affine::metrics::knobLarge);
+
+    for (auto* knob : { &smoothingKnob, &sensitivityKnob, &rateMultKnob, &manualRateKnob })
+        knob->setShowsActivityLamp(true);
+
+    modeKeys.onChange = [this](int) { updateModePresentation(); };
+    modeKeys.setLegends({ "Track", "Manual" });
+    modeKeys.setKeySize(56.0f, 30.0f);
+    waveformKeys.setLegends({ "Sine", "Tri", "Square", "Saw" });
+    waveformKeys.setGlyphs({ affine::glyphs::sine(), affine::glyphs::triangle(),
+                             affine::glyphs::square(), affine::glyphs::saw() });
+    waveformKeys.setKeySize(50.0f, 38.0f);
+    waveformKeys.setColumns(2);
+
+    int order = 1;
+    for (juce::Component* control : { static_cast<juce::Component*>(&modeKeys),
+                                      static_cast<juce::Component*>(&smoothingKnob),
+                                      static_cast<juce::Component*>(&sensitivityKnob),
+                                      static_cast<juce::Component*>(&rateMultKnob),
+                                      static_cast<juce::Component*>(&manualRateKnob),
+                                      static_cast<juce::Component*>(&waveformKeys),
+                                      static_cast<juce::Component*>(&mixKnob) })
+    {
+        control->setExplicitFocusOrder(order++);
+        addAndMakeVisible(control);
+    }
+
+    for (auto* knob : { &smoothingKnob, &sensitivityKnob, &rateMultKnob, &manualRateKnob, &mixKnob })
+        knob->setTheme(theme);
+    for (auto* keys : { &modeKeys, &waveformKeys })
+        keys->setTheme(theme);
+
+    lastBlockCount = processorRef.processedBlocks.load(std::memory_order_acquire);
+    lastBlockMs = juce::Time::getMillisecondCounterHiRes() - 1000.0;
+
+    setSize(width, height);
     updateModePresentation();
     timerCallback();
     startTimerHz(30);
@@ -237,159 +524,103 @@ HdnRingmodAudioProcessorEditor::HdnRingmodAudioProcessorEditor(HdnRingmodAudioPr
 HdnRingmodAudioProcessorEditor::~HdnRingmodAudioProcessorEditor()
 {
     stopTimer();
-    mixAttach.reset();
-    rateMultAttach.reset();
-    manualRateAttach.reset();
-    smoothingAttach.reset();
-    sensitivityAttach.reset();
-    modeAttach.reset();
-    waveformAttach.reset();
     setLookAndFeel(nullptr);
 }
 
 void HdnRingmodAudioProcessorEditor::paint(juce::Graphics& graphics)
 {
-    graphics.fillAll(PluginTheme::canvas);
-
-    graphics.setColour(PluginTheme::surface);
-    graphics.fillRect(0, 0, getWidth(), 62);
-    graphics.setColour(PluginTheme::border);
-    graphics.drawHorizontalLine(61, 0.0f, static_cast<float>(getWidth()));
-
-    graphics.setColour(PluginTheme::accent);
-    graphics.fillRoundedRectangle(18.0f, 17.0f, 4.0f, 28.0f, 2.0f);
-
-    graphics.setColour(PluginTheme::primaryText);
-    graphics.setFont(PluginTheme::makeFont(22.0f, true, 0.02f));
-    graphics.drawText("HDN", 34, 10, 48, 25, juce::Justification::centredLeft);
-    graphics.setColour(PluginTheme::secondaryText);
-    graphics.drawText("/", 80, 10, 16, 25, juce::Justification::centred);
-    graphics.setColour(PluginTheme::primaryText);
-    graphics.drawText("RING MODULATOR", 96, 10, 220, 25, juce::Justification::centredLeft);
-
-    graphics.setColour(PluginTheme::secondaryText);
-    graphics.setFont(PluginTheme::makeFont(11.0f, true, 0.12f));
-    graphics.drawText("PITCH-TRACKED SIGNAL PROCESSOR", 34, 34, 280, 15,
-                      juce::Justification::centredLeft);
-
-    auto iconCentre = juce::Point<float>(static_cast<float>(getWidth() - 42), 31.0f);
-    graphics.setColour(PluginTheme::border);
-    graphics.drawEllipse(iconCentre.x - 19.0f, iconCentre.y - 10.0f, 20.0f, 20.0f, 1.5f);
-    graphics.setColour(PluginTheme::accent);
-    graphics.drawEllipse(iconCentre.x - 1.0f, iconCentre.y - 10.0f, 20.0f, 20.0f, 1.5f);
-
-    paintPanel(graphics, trackerBounds, "PITCH MONITOR");
-    paintPanel(graphics, sourceBounds, "CONFIGURATION");
-    paintPanel(graphics, carrierBounds, "CARRIER");
-    paintPanel(graphics, trackingBounds, "TRACKING");
-    paintPanel(graphics, outputBounds, "OUTPUT");
+    faceplate.paint(graphics, getLocalBounds(), theme, [this](juce::Graphics& plate) { print(plate); });
 }
 
-void HdnRingmodAudioProcessorEditor::paintPanel(juce::Graphics& graphics,
-                                                 juce::Rectangle<int> bounds,
-                                                 const juce::String& title) const
+void HdnRingmodAudioProcessorEditor::print(juce::Graphics& g)
 {
-    auto panel = bounds.toFloat();
-    graphics.setColour(PluginTheme::surface);
-    graphics.fillRoundedRectangle(panel, PluginTheme::cornerRadius);
-    graphics.setColour(PluginTheme::border);
-    graphics.drawRoundedRectangle(panel.reduced(0.5f), PluginTheme::cornerRadius, 1.0f);
+    const auto& palette = theme.palette;
+    const auto h = static_cast<float>(height);
 
-    graphics.setColour(PluginTheme::secondaryText);
-    graphics.setFont(PluginTheme::makeFont(11.5f, true, 0.10f));
-    graphics.drawText(title, bounds.getX() + 14, bounds.getY() + 8,
-                      bounds.getWidth() - 28, 15, juce::Justification::centredLeft);
+    affine::silkscreen::wordmark(g, "Ring Modulator", "HDN  /  Pitch-tracking carrier", { 38.0f, 22.0f }, palette);
+    g.setColour(palette.silkscreenDim);
+    g.setFont(affine::fonts::label(11.5f, 0.26f));
+    g.drawText("SOURCE", modeArea.toFloat().withWidth(70.0f).withX(static_cast<float>(modeArea.getX()) - 78.0f).withHeight(36.0f),
+               juce::Justification::centredRight, false);
 
-    graphics.setColour(PluginTheme::border.withAlpha(0.7f));
-    graphics.drawHorizontalLine(bounds.getY() + 28,
-                                static_cast<float>(bounds.getX() + 14),
-                                static_cast<float>(bounds.getRight() - 14));
+    const auto glass = screenArea.toFloat().reduced(5.0f);
+    affine::render::screenGlass(g, glass);
+    g.setColour(palette.screen.withAlpha(0.10f));
+    g.fillRect(321.0f, static_cast<float>(inputArea.getY()) + 4.0f, 1.0f, static_cast<float>(inputArea.getHeight()) - 8.0f);
+
+    affine::silkscreen::section(g, "Tracking", { 36.0f, 344.0f, 272.0f, 1.0f }, palette);
+    affine::silkscreen::section(g, "Carrier", { 330.0f, 344.0f, 446.0f, 1.0f }, palette);
+    affine::silkscreen::section(g, "Output", { 796.0f, 344.0f, 128.0f, 1.0f }, palette);
+
+    affine::silkscreen::makersMark(g, { 40.0f, h - 14.0f }, palette);
 }
 
 void HdnRingmodAudioProcessorEditor::resized()
 {
-    auto content = getLocalBounds();
-    content.removeFromTop(62);
-    content.reduce(18, 18);
+    modeKeys.setBounds(modeArea);
+    pitchDisplay.setBounds(inputArea);
+    carrierDisplay.setBounds(carrierArea);
 
-    auto top = content.removeFromTop(154);
-    trackerBounds = top.removeFromLeft(500);
-    top.removeFromLeft(12);
-    sourceBounds = top;
-
-    content.removeFromTop(12);
-    auto bottom = content;
-    carrierBounds = bottom.removeFromLeft(290);
-    bottom.removeFromLeft(12);
-    trackingBounds = bottom.removeFromLeft(290);
-    bottom.removeFromLeft(12);
-    outputBounds = bottom;
-
-    auto trackerContent = trackerBounds.reduced(16);
-    trackerContent.removeFromTop(28);
-    pitchDisplay.setBounds(trackerContent);
-
-    auto sourceContent = sourceBounds.reduced(14);
-    sourceContent.removeFromTop(26);
-    modeLabel.setBounds(sourceContent.removeFromTop(14));
-    modeBox.setBounds(sourceContent.removeFromTop(34));
-    sourceContent.removeFromTop(6);
-    waveformLabel.setBounds(sourceContent.removeFromTop(14));
-    waveformBox.setBounds(sourceContent.removeFromTop(32));
-
-    auto layoutPair = [](juce::Rectangle<int> panel, juce::Slider& firstSlider,
-                         juce::Label& firstLabel, juce::Slider& secondSlider,
-                         juce::Label& secondLabel)
+    const auto place = [](affine::Knob& knob, int centreX)
     {
-        auto controls = panel.reduced(12);
-        controls.removeFromTop(28);
-        auto first = controls.removeFromLeft(controls.getWidth() / 2);
-        auto second = controls;
-        firstLabel.setBounds(first.removeFromTop(18));
-        secondLabel.setBounds(second.removeFromTop(18));
-        firstSlider.setBounds(first.reduced(3, 0));
-        secondSlider.setBounds(second.reduced(3, 0));
+        knob.setBounds(knob.getBoundsForCentre({ centreX, knobCentreY }));
     };
 
-    layoutPair(carrierBounds, rateMultSlider, rateMultLabel,
-               manualRateSlider, manualRateLabel);
-    layoutPair(trackingBounds, smoothingSlider, smoothingLabel,
-               sensitivitySlider, sensitivityLabel);
+    place(smoothingKnob, 104);
+    place(sensitivityKnob, 240);
+    place(rateMultKnob, 406);
+    place(manualRateKnob, 562);
+    waveformKeys.setBounds(waveformArea);
+    place(mixKnob, 860);
+}
 
-    auto output = outputBounds.reduced(12);
-    output.removeFromTop(28);
-    mixLabel.setBounds(output.removeFromTop(18));
-    mixSlider.setBounds(output.reduced(2, 0));
+int HdnRingmodAudioProcessorEditor::getControlParameterIndex(juce::Component& component)
+{
+    for (auto* knob : { &smoothingKnob, &sensitivityKnob, &rateMultKnob, &manualRateKnob, &mixKnob })
+        if (&component == knob || knob->isParentOf(&component))
+            return knob->parameter.getParameterIndex();
+
+    for (auto* keys : { &modeKeys, &waveformKeys })
+        if (&component == keys || keys->isParentOf(&component))
+            return keys->parameter.getParameterIndex();
+
+    return -1;
 }
 
 void HdnRingmodAudioProcessorEditor::updateModePresentation()
 {
-    auto modeIndex = modeBox.getSelectedItemIndex();
+    auto modeIndex = modeKeys.getSelectedIndex();
     if (modeIndex == lastModeIndex)
         return;
 
     lastModeIndex = modeIndex;
     auto pitchTracking = modeIndex != 1;
-    auto setControlEmphasis = [](juce::Slider& slider, bool prominent)
-    {
-        slider.setColour(juce::Slider::rotarySliderFillColourId,
-                         prominent ? PluginTheme::accent : PluginTheme::inactiveControl);
-        slider.repaint();
-    };
-
-    setControlEmphasis(rateMultSlider, pitchTracking);
-    setControlEmphasis(smoothingSlider, pitchTracking);
-    setControlEmphasis(sensitivitySlider, pitchTracking);
-    setControlEmphasis(manualRateSlider, !pitchTracking);
+    rateMultKnob.setInactive(!pitchTracking);
+    smoothingKnob.setInactive(!pitchTracking);
+    sensitivityKnob.setInactive(!pitchTracking);
+    manualRateKnob.setInactive(pitchTracking);
 }
 
 void HdnRingmodAudioProcessorEditor::timerCallback()
 {
-    auto pitchHz = processorRef.currentPitchHz.load(std::memory_order_relaxed);
-    auto confidence = processorRef.currentConfidence.load(std::memory_order_relaxed);
-    auto pitchTracking = modeBox.getSelectedItemIndex() != 1;
+    const auto now = juce::Time::getMillisecondCounterHiRes();
+    const auto blocks = processorRef.processedBlocks.load(std::memory_order_acquire);
+    if (blocks != lastBlockCount)
+    {
+        lastBlockCount = blocks;
+        lastBlockMs = now;
+    }
 
-    pitchDisplay.setState(pitchHz, confidence, pitchTracking,
-                          static_cast<float>(manualRateSlider.getValue()));
+    const auto live = now - lastBlockMs < freshnessMs;
+    const auto pitchTracking = modeKeys.getSelectedIndex() != 1;
+    const auto manualRate = static_cast<float>(manualRateKnob.getValue());
+    const auto carrierHz = processorRef.currentCarrierHz.load(std::memory_order_relaxed);
+    const auto pitchHz = processorRef.currentPitchHz.load(std::memory_order_relaxed);
+    const auto sensitivity = processorRef.apvts.getRawParameterValue(ParameterIDs::sensitivity)->load() / 100.0f;
+
+    pitchDisplay.setState(pitchHz, processorRef.currentConfidence.load(std::memory_order_relaxed),
+                          pitchTracking, manualRate, sensitivity, live && pitchTracking && carrierHz > 0.0f, live);
+    carrierDisplay.setReference(pitchTracking, pitchDisplay.hasPitch() ? pitchHz : 0.0f);
+    carrierDisplay.setState(pitchTracking ? (live ? carrierHz : 0.0f) : manualRate, waveformKeys.getSelectedIndex());
     updateModePresentation();
 }

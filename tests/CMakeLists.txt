@@ -17,8 +17,9 @@ target_sources(HdnRingmodTests PRIVATE
     TestYinPitchDetector.cpp
     TestPitchSmoother.cpp
     TestParameters.cpp
-    TestPluginLookAndFeel.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../source/PluginLookAndFeel.cpp
+    TestEditor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source/PluginProcessor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../source/PluginEditor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../source/dsp/Oscillator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../source/dsp/YinPitchDetector.cpp
 )
@@ -30,10 +31,12 @@ target_include_directories(HdnRingmodTests PRIVATE
 target_compile_definitions(HdnRingmodTests PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
+    JucePlugin_Name="HDN Ring Modulator"
 )
 
 target_link_libraries(HdnRingmodTests PRIVATE
-    HdnRingmodAssets
+    affine_ui
+    juce::juce_audio_processors
     juce::juce_dsp
     juce::juce_gui_basics
     Catch2::Catch2WithMain

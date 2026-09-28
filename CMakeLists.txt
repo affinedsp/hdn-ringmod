@@ -9,14 +9,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_subdirectory(JUCE)
-
-juce_add_binary_data(HdnRingmodAssets
-    NAMESPACE HdnRingmodAssets
-    HEADER_NAME HdnRingmodAssets.h
-    SOURCES
-        assets/fonts/BarlowCondensed-Regular.ttf
-        assets/fonts/BarlowCondensed-SemiBold.ttf
-)
+include(libs/affine-ui/AffineUI.cmake)
 
 juce_add_plugin(HdnRingmod
     COMPANY_NAME "HDN"
@@ -33,7 +26,6 @@ add_library(HdnRingmodShared INTERFACE)
 target_sources(HdnRingmodShared INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/source/PluginProcessor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/source/PluginEditor.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/PluginLookAndFeel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/source/dsp/YinPitchDetector.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/source/dsp/Oscillator.cpp
 )
@@ -41,7 +33,7 @@ target_sources(HdnRingmodShared INTERFACE
 target_include_directories(HdnRingmodShared INTERFACE source)
 
 target_link_libraries(HdnRingmodShared INTERFACE
-    HdnRingmodAssets
+    affine_ui
     juce::juce_audio_utils
     juce::juce_audio_processors
     juce::juce_dsp
