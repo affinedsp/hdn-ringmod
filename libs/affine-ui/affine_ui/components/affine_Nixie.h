@@ -7,15 +7,19 @@ namespace affine
     the ten numeral cathodes stacked behind a honeycomb anode; unlit cathodes stay
     faintly visible, exactly as in the real part.
 
-    Text is right-aligned into the tubes. Supported characters: 0-9, '.', '-', ' '.
-    A '.' lights the decimal cathode of the preceding tube.
+    Numeral tubes right-align their text and support 0-9, '.', '-' and ' ';
+    a '.' lights the decimal cathode of the preceding tube. Alphanumeric tubes
+    carry fourteen neon segments, as in the B-7971, and left-align their text.
 */
 class NixieDisplay : public juce::Component
 {
 public:
+    enum class Characters { numerals, alphanumeric };
+
     NixieDisplay();
 
     void setTheme (const Theme&);
+    void setCharacters (Characters);
     void setNumTubes (int);
     void setText (const juce::String&);
     /** 0 = tubes dark (no reading), 1 = fully lit. */
@@ -37,7 +41,6 @@ private:
     juce::Rectangle<float> tubeBounds (int index) const;
     void renderTubes (float scale);
     void renderFront (float scale);
-    void renderSprites (float scale, juce::Rectangle<float> glyphArea);
 
     Theme theme;
     int tubes = 5;
@@ -51,10 +54,12 @@ private:
     {
         juce::Image crisp, glow;
     };
-    std::array<Sprite, 11> sprites; // 0-9 and '-'
+    const Sprite& spriteFor (juce::juce_wchar, float scale, juce::Rectangle<float> glyphArea);
+
+    Characters characters = Characters::numerals;
+    std::map<juce::juce_wchar, Sprite> sprites;
     float spriteScale = 0.0f;
     int spriteMargin = 0;
-    juce::Rectangle<float> spriteArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NixieDisplay)
 };

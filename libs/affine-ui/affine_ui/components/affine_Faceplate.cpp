@@ -19,7 +19,8 @@ void Faceplate::paint (juce::Graphics& g, juce::Rectangle<int> bounds, const The
         layer.setColour (juce::Colours::black.withAlpha (0.45f));
         layer.fillRect (edge.withTop (edge.getBottom() - 1.0f));
 
-        silkscreen::screws (layer, edge);
+        if (screws)
+            silkscreen::screws (layer, edge);
         if (print != nullptr)
             print (layer);
     }
@@ -120,6 +121,13 @@ void screws (juce::Graphics& g, juce::Rectangle<float> bounds)
     const float turns[] { 0.35f, 1.10f, 0.72f, 0.05f };
     for (int i = 0; i < 4; ++i)
         render::screw (g, corners[i], metrics::screwDiameter, turns[i]);
+}
+
+void litLegend (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area, juce::Colour colour,
+                const juce::Font& font, juce::Justification justification, float glow)
+{
+    render::GlowText lit;
+    lit.draw (g, text, font, area, justification, colour, 2.4f, glow);
 }
 } // namespace silkscreen
 } // namespace affine

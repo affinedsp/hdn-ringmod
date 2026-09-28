@@ -2,13 +2,28 @@
 
 namespace affine
 {
-/** Materials of the family knob. Only the paint colours differ between products. */
+/** Materials and proportions of the family knob. */
 struct KnobFinish
 {
-    juce::Colour cap { 0xffc3c7cc };      // spun aluminium top
-    juce::Colour body { 0xff1b1e22 };     // anodised grip and skirt
+    enum class Material
+    {
+        spunAluminium,     // lathe-turned metal with an anisotropic highlight
+        anodised,          // satin dyed metal
+        glossPlastic,      // moulded phenolic or bakelite with a clear gloss
+        polishedAluminium  // bright metal that mirrors the studio
+    };
+
+    juce::Colour cap { 0xffc3c7cc };
+    juce::Colour body { 0xff1b1e22 };
     juce::Colour pointer { 0xffe8e4da };  // paint-filled engraving on the cap
     juce::Colour index { 0xffe8e4da };    // printed index on the skirt
+    Material capMaterial = Material::spunAluminium;
+    Material bodyMaterial = Material::anodised;
+    float capRatio = 0.60f;               // cap radius as a fraction of the knob radius
+    float gripRatio = 0.80f;              // outer radius of the knurled or fluted grip
+    float capDome = 0.06f;                // slope of the cap at its edge, in radians
+    int ridges = 0;                       // grip ridges; 0 picks a pitch for the size
+    float ridgeDepth = 0.62f;             // 0 gives a smooth grip
 };
 
 /**
@@ -16,7 +31,7 @@ struct KnobFinish
     while the knob turns: exactly what real hardware does.
 
     The rotation-invariant body and the shadow are rendered once per physical
-    size. Only the knurled grip band is re-shaded when the angle changes.
+    size. Only the grip band is re-shaded when the angle changes.
 */
 class KnobRenderer
 {
@@ -37,10 +52,6 @@ public:
     const juce::Image& getGrip (float angle);
 
     const KnobFinish& getFinish() const noexcept { return finish; }
-
-    /** Radii of the rendered geometry as fractions of the knob radius. */
-    static constexpr float capRadius = 0.600f;
-    static constexpr float skirtRadius = 0.800f;
 
 private:
     void renderBody();

@@ -12,6 +12,12 @@ void LadderMeter::setTheme (const Theme& t)
     repaint();
 }
 
+void LadderMeter::setOrientation (Orientation o)
+{
+    orientation = o;
+    repaint();
+}
+
 void LadderMeter::setRange (float minimumDb, float maximumDb, int segmentCount)
 {
     minimum = minimumDb;
@@ -60,9 +66,20 @@ constexpr float segmentGap = 2.0f;
 
 LadderMeter::Layout LadderMeter::getLayout() const
 {
-    // The clip cell sits apart at the top; the level segments fill the rest of the column.
-    auto inner = getLocalBounds().toFloat().reduced (4.0f, 5.0f);
+    // The clip cell sits apart at the far end; the level segments fill the rest.
     Layout layout;
+    if (orientation == Orientation::horizontal)
+    {
+        auto inner = getLocalBounds().toFloat().reduced (5.0f, 4.0f);
+        const auto cell = (inner.getWidth() - segmentGap * static_cast<float> (segments)) / static_cast<float> (segments + 1);
+        layout.clipCell = inner.removeFromRight (cell);
+        inner.removeFromRight (segmentGap * 2.0f);
+        layout.column = inner;
+        layout.segmentHeight = (inner.getWidth() - segmentGap * static_cast<float> (segments - 1)) / static_cast<float> (segments);
+        return layout;
+    }
+
+    auto inner = getLocalBounds().toFloat().reduced (4.0f, 5.0f);
     const auto cell = (inner.getHeight() - segmentGap * static_cast<float> (segments)) / static_cast<float> (segments + 1);
     layout.clipCell = inner.removeFromTop (cell);
     inner.removeFromTop (segmentGap * 2.0f);
@@ -99,7 +116,8 @@ void LadderMeter::paint (juce::Graphics& g)
         g.setGradientFill (diffuser);
         g.fillRoundedRectangle (segment, 1.2f);
         g.setColour (juce::Colours::white.withAlpha (0.35f * lit));
-        g.fillRoundedRectangle (segment.withHeight (juce::jmin (1.2f, segment.getHeight() * 0.4f)).reduced (1.0f, 0.0f), 0.6f);
+        if (orientation == Orientation::vertical)
+            g.fillRoundedRectangle (segment.withHeight (juce::jmin (1.2f, segment.getHeight() * 0.4f)).reduced (1.0f, 0.0f), 0.6f);
     };
 
     paintSegment (layout.clipCell, theme.palette.danger, clip ? 1.0f : 0.0f);
@@ -107,9 +125,13 @@ void LadderMeter::paint (juce::Graphics& g)
     for (int i = 0; i < segments; ++i)
     {
         const auto lower = minimum + step * static_cast<float> (i);
-        const auto y = layout.column.getBottom() - static_cast<float> (i + 1) * layout.segmentHeight - static_cast<float> (i) * segmentGap;
         const auto lit = live ? juce::jlimit (0.0f, 1.0f, (level - lower) / step) : 0.0f;
-        paintSegment ({ layout.column.getX(), y, layout.column.getWidth(), layout.segmentHeight }, colourFor (lower + step * 0.5f), lit);
+        const auto offset = static_cast<float> (i) * (layout.segmentHeight + segmentGap);
+        const auto segment = orientation == Orientation::horizontal
+            ? juce::Rectangle<float> (layout.column.getX() + offset, layout.column.getY(), layout.segmentHeight, layout.column.getHeight())
+            : juce::Rectangle<float> (layout.column.getX(), layout.column.getBottom() - offset - layout.segmentHeight,
+                                      layout.column.getWidth(), layout.segmentHeight);
+        paintSegment (segment, colourFor (lower + step * 0.5f), lit);
     }
 }
 

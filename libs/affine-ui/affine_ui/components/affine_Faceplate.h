@@ -18,7 +18,11 @@ public:
     /** Forces the next paint to rebuild, e.g. after printed text changed. */
     void invalidate() noexcept { cache = {}; }
 
+    /** Corner screws; off for fronts that are held some other way (rack ears, glass). */
+    void setShowsScrews (bool shouldShow) { screws = shouldShow; cache = {}; }
+
 private:
+    bool screws = true;
     juce::Image cache;
     juce::Rectangle<int> cachedBounds;
     float cachedScale = 0.0f;
@@ -45,5 +49,9 @@ void legend (juce::Graphics&, const juce::String&, juce::Rectangle<float>, const
 
 /** Four corner screws. */
 void screws (juce::Graphics&, juce::Rectangle<float> bounds);
+
+/** A legend printed on the back of a glass front and lit from behind: it glows softly. */
+void litLegend (juce::Graphics&, const juce::String&, juce::Rectangle<float>, juce::Colour, const juce::Font&,
+                juce::Justification = juce::Justification::centredLeft, float glow = 0.6f);
 } // namespace silkscreen
 } // namespace affine

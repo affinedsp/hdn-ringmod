@@ -28,6 +28,14 @@ void lamp (juce::Graphics& g, juce::Point<float> centre, float diameter, juce::C
     g.fillEllipse (juce::Rectangle<float> (r * 0.62f, r * 0.42f).withCentre (centre.translated (-r * 0.28f, -r * 0.40f)));
 }
 
+void indicator (juce::Graphics& g, juce::Point<float> centre, float diameter, juce::Colour colour, float level, const Palette& palette)
+{
+    if (palette.lamp == Palette::Lamp::jewel)
+        jewel (g, centre, diameter, colour, level);
+    else
+        lamp (g, centre, diameter, colour, level);
+}
+
 void glass (juce::Graphics& g, juce::Rectangle<float> area, const Palette& palette, float corner)
 {
     juce::ColourGradient body (palette.glassTint, area.getX(), area.getY(),
@@ -84,6 +92,12 @@ void DisplayLabel::setShowsLamp (bool shouldShow)
     repaint();
 }
 
+void DisplayLabel::setBacklit (bool shouldBeBacklit)
+{
+    backlit = shouldBeBacklit;
+    repaint();
+}
+
 void DisplayLabel::setGlassVisible (bool shouldShow)
 {
     glassVisible = shouldShow;
@@ -98,6 +112,16 @@ void DisplayLabel::setDisplayFont (const juce::Font& f)
 
 void DisplayLabel::paint (juce::Graphics& g)
 {
+    if (backlit)
+    {
+        const auto window = getLocalBounds().toFloat().reduced (2.0f);
+        render::litWindow (g, window, emission, lampLevel);
+        g.setColour (theme.palette.readoutInk.withMultipliedAlpha (0.35f + 0.55f * lampLevel));
+        g.setFont (font);
+        g.drawText (getText().toUpperCase(), window.reduced (8.0f, 0.0f), getJustificationType(), false);
+        return;
+    }
+
     auto area = getLocalBounds().toFloat();
     if (glassVisible)
         render::glass (g, area, theme.palette);
@@ -119,7 +143,7 @@ void DisplayLabel::paint (juce::Graphics& g)
             const auto textWidth = glyphs.getBoundingBox (0, -1, true).getWidth();
             lampSlot = lampSlot.withX (area.getRight() - textWidth - 19.0f);
         }
-        render::lamp (g, lampSlot.getCentre(), 6.0f, lampColour.isTransparent() ? emission : lampColour, lampLevel);
+        render::indicator (g, lampSlot.getCentre(), 6.0f, lampColour.isTransparent() ? emission : lampColour, lampLevel, theme.palette);
         area.removeFromLeft (7.0f);
     }
 

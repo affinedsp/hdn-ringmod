@@ -20,6 +20,16 @@ struct Palette
     // Display glass and its unlit segments.
     juce::Colour glass { 0xff07090b };
     juce::Colour glassTint { 0xff0d1417 };
+
+    /** Indicator lamps: small LEDs behind lenses, or faceted jewels in chrome bezels. */
+    enum class Lamp { led, jewel };
+    Lamp lamp = Lamp::led;
+
+    /** How value readouts are lit: glowing characters on glass, or dark ink on a backlit window. */
+    enum class Readout { glowing, backlit };
+    Readout readout = Readout::glowing;
+    juce::Colour readoutBacklight { 0xfff1d58c };  // backlit readouts only
+    juce::Colour readoutInk { 0xff1f1a12 };        // backlit readouts only
 };
 
 struct Theme

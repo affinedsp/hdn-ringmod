@@ -20,4 +20,5 @@
 #include "components/affine_Keys.cpp"
 #include "components/affine_Nixie.cpp"
 #include "components/affine_Faceplate.cpp"
+#include "components/affine_Legends.cpp"
 #include "theme/affine_LookAndFeel.cpp"

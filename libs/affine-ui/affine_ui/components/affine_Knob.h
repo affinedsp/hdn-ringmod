@@ -40,6 +40,9 @@ public:
     /** A lamp beside the label that reports whether the control currently acts on the sound. */
     void setShowsActivityLamp (bool shouldShow);
 
+    /** A ring of LEDs around the knob, lit up to the current value, instead of printed ticks. */
+    void setLedRing (bool shouldShow);
+
     juce::Point<int> getPreferredSize() const;
     /** Preferred bounds, in the parent, that put the knob's axis at `knobCentre`. */
     juce::Rectangle<int> getBoundsForCentre (juce::Point<int> knobCentre) const;
@@ -85,7 +88,7 @@ private:
     std::vector<double> scaleValues;
     std::function<juce::String (double)> scaleFormatter;
     double keyboardStep = 0.0;
-    bool inactive = false, activityLamp = false;
+    bool inactive = false, activityLamp = false, ledRing = false;
 
     juce::TextEditor entry;
     juce::Point<float> lastDrag;

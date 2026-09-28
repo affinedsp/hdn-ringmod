@@ -18,6 +18,28 @@ public:
         std::vector<float> majors, minors;
         std::function<juce::String (float)> format;
         juce::String unit, caption;
+        float restPosition = 0.0f;  // where the needle rests without a reading: 0.5 for centre-zero meters
+    };
+
+    /** The printed card and the housing around it. */
+    struct Face
+    {
+        enum class Bezel
+        {
+            moulded,  // black moulded housing standing proud of the plate
+            chrome,   // black housing with a polished chrome ring, as on vintage panel meters
+            flush     // behind a glass front: only a thin black frame
+        };
+
+        juce::Colour backlight { 0xfff2e4c4 };  // the lamp behind the card
+        juce::Colour ink { 0xff1d1b18 };        // printing on the card
+        juce::Colour zone { 0xffc23b2e };       // colour of the red zone
+        float zoneFrom = 2.0f;                  // scale position where the red zone begins; above 1 for none
+        bool mirror = true;                     // anti-parallax mirror band
+        float vignette = 1.1f;                  // how much darker the card's corners are than its lit centre
+        bool twinLamps = false;                 // two bulbs low behind the card instead of one
+        Bezel bezel = Bezel::moulded;
+        juce::String brand;                     // small print on the card, e.g. "VU"
     };
 
     NeedleMeter();
@@ -26,9 +48,13 @@ public:
     void setTheme (const Theme&);
     void setScale (Scale);
     void setCaption (const juce::String&);
+    void setFace (const Face&);
 
     /** Face backlight colour: the lamp behind the printed scale. */
     void setBacklight (juce::Colour);
+
+    /** Movement: natural frequency in Hz and damping ratio. The default is a VU-like 2.1 Hz, 0.74. */
+    void setBallistics (float frequencyHz, float damping);
 
     /** Sets the reading. When `live` is false the needle rests and the lamp dims. */
     void setReading (float value, bool live);
@@ -51,7 +77,8 @@ private:
 
     Theme theme;
     Scale scale;
-    juce::Colour backlight { 0xfff3ead6 };
+    Face style;
+    float naturalFrequency = 2.1f, dampingRatio = 0.74f;
     juce::Image face;
     float faceScale = 0.0f;
     float target = 0.0f, position = 0.0f, velocity = 0.0f, lamp = 0.0f, lampTarget = 0.0f;

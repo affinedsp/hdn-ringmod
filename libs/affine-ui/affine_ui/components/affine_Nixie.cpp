@@ -11,42 +11,32 @@ juce::Rectangle<float> glyphAreaIn (juce::Rectangle<float> tube)
                .withTrimmedBottom (tube.getHeight() * 0.19f);
 }
 
-int spriteIndex (juce::juce_wchar c)
-{
-    if (c >= '0' && c <= '9')
-        return static_cast<int> (c - '0');
-    if (c == '-')
-        return 10;
-    return -1;
-}
-
-juce::Path rawGlyph (juce::juce_wchar c)
+juce::Path rawGlyph (juce::juce_wchar c, bool segments)
 {
     juce::GlyphArrangement glyphs;
-    glyphs.addLineOfText (fonts::nixie (100.0f), juce::String::charToString (c), 0.0f, 0.0f);
+    glyphs.addLineOfText (segments ? fonts::segment (100.0f) : fonts::nixie (100.0f), juce::String::charToString (c), 0.0f, 0.0f);
     juce::Path path;
     glyphs.createPath (path);
     return path;
 }
 
-// Numeral cathodes share one height and baseline; each is centred in the tube.
-juce::Path cathode (juce::juce_wchar c, juce::Rectangle<float> area)
+// Numeral cathodes share one height and baseline and are centred in the tube.
+// Segment tubes place every character in the same fourteen-segment cell.
+juce::Path cathode (juce::juce_wchar c, juce::Rectangle<float> area, bool segments)
 {
-    static const auto reference = rawGlyph ('0').getBounds();
-    auto path = rawGlyph (c);
-    const auto bounds = path.getBounds();
+    static const auto numeralCell = rawGlyph ('0', false).getBounds();
+    static const auto segmentCell = rawGlyph ('~', true).getBounds();
+    const auto& reference = segments ? segmentCell : numeralCell;
+    auto path = rawGlyph (c, segments);
+    const auto centreX = segments ? reference.getCentreX() : path.getBounds().getCentreX();
     const auto sy = area.getHeight() / reference.getHeight();
     const auto sx = juce::jmin (sy, area.getWidth() / reference.getWidth());
-    path.applyTransform (juce::AffineTransform::translation (-bounds.getCentreX(), -reference.getY())
+    path.applyTransform (juce::AffineTransform::translation (-centreX, -reference.getY())
                              .scaled (sx, sy)
                              .translated (area.getCentreX(), area.getY()));
     return path;
 }
 
-void drawGlyph (juce::Graphics& g, juce::juce_wchar c, juce::Rectangle<float> area)
-{
-    g.fillPath (cathode (c, area));
-}
 } // namespace
 
 NixieDisplay::NixieDisplay()
@@ -65,7 +55,15 @@ void NixieDisplay::setNumTubes (int n)
 {
     tubes = juce::jmax (1, n);
     glassLayer = {};
-    sprites = {};
+    sprites.clear();
+    repaint();
+}
+
+void NixieDisplay::setCharacters (Characters set)
+{
+    characters = set;
+    glassLayer = {};
+    sprites.clear();
     repaint();
 }
 
@@ -89,7 +87,7 @@ void NixieDisplay::setIntensity (float i)
 void NixieDisplay::resized()
 {
     glassLayer = {};
-    sprites = {};
+    sprites.clear();
 }
 
 juce::Rectangle<float> NixieDisplay::tubeBounds (int index) const
@@ -112,11 +110,13 @@ std::vector<NixieDisplay::Cell> NixieDisplay::layoutCells() const
         }
         cells.push_back ({ c, false });
     }
-    // Right-align into the tubes, dropping anything that does not fit.
+    // Numbers right-align like a counter; words left-align. Anything that does not fit is dropped.
     std::vector<Cell> placed (static_cast<size_t> (tubes));
     const auto count = juce::jmin (static_cast<int> (cells.size()), tubes);
+    const auto first = characters == Characters::numerals ? tubes - count : 0;
+    const auto skip = characters == Characters::numerals ? cells.size() - static_cast<size_t> (count) : 0;
     for (int i = 0; i < count; ++i)
-        placed[static_cast<size_t> (tubes - count + i)] = cells[cells.size() - static_cast<size_t> (count) + static_cast<size_t> (i)];
+        placed[static_cast<size_t> (first + i)] = cells[skip + static_cast<size_t> (i)];
     return placed;
 }
 
@@ -143,10 +143,11 @@ void NixieDisplay::renderTubes (float scale)
         g.setGradientFill (glass);
         g.fillPath (envelope);
 
-        // Ghost cathodes: every numeral, stacked, faintly visible through the mesh.
-        g.setColour (juce::Colour (0xff8a705a).withAlpha (0.09f));
-        for (auto c : juce::String ("0123456789"))
-            drawGlyph (g, c, glyphs);
+        // Ghost cathodes: every electrode, stacked, faintly visible through the mesh.
+        const auto segments = characters == Characters::alphanumeric;
+        g.setColour (juce::Colour (0xff8a705a).withAlpha (segments ? 0.16f : 0.09f));
+        for (auto c : juce::String (segments ? "~" : "0123456789"))
+            g.fillPath (cathode (c, glyphs, segments));
         const auto dot = juce::Rectangle<float> (3.0f, 3.0f).withCentre ({ glyphs.getRight() + tube.getWidth() * 0.05f, glyphs.getBottom() - 2.0f });
         g.fillEllipse (dot);
 
@@ -207,28 +208,33 @@ void NixieDisplay::renderFront (float scale)
     }
 }
 
-void NixieDisplay::renderSprites (float scale, juce::Rectangle<float> glyphArea)
+const NixieDisplay::Sprite& NixieDisplay::spriteFor (juce::juce_wchar c, float scale, juce::Rectangle<float> glyphArea)
 {
-    spriteScale = scale;
-    spriteArea = glyphArea.withZeroOrigin();
-    spriteMargin = juce::roundToInt (8.0f * scale) + 2;
-    const auto w = juce::roundToInt (glyphArea.getWidth() * scale) + spriteMargin * 2;
-    const auto h = juce::roundToInt (glyphArea.getHeight() * scale) + spriteMargin * 2;
-    const juce::String chars ("0123456789-");
-
-    for (int i = 0; i < chars.length(); ++i)
+    if (! juce::approximatelyEqual (spriteScale, scale))
     {
-        auto& sprite = sprites[static_cast<size_t> (i)];
-        sprite.crisp = juce::Image (juce::Image::SingleChannel, w, h, true);
-        {
-            juce::Graphics g (sprite.crisp);
-            g.addTransform (juce::AffineTransform::scale (scale).translated (static_cast<float> (spriteMargin), static_cast<float> (spriteMargin)));
-            g.setColour (juce::Colours::white);
-            drawGlyph (g, chars[i], spriteArea);
-        }
-        sprite.glow = sprite.crisp.createCopy();
-        render::blurAlpha (sprite.glow, 4.5f * scale);
+        sprites.clear();
+        spriteScale = scale;
+        spriteMargin = juce::roundToInt (8.0f * scale) + 2;
     }
+
+    auto found = sprites.find (c);
+    if (found != sprites.end())
+        return found->second;
+
+    const auto area = glyphArea.withZeroOrigin();
+    const auto w = juce::roundToInt (area.getWidth() * scale) + spriteMargin * 2;
+    const auto h = juce::roundToInt (area.getHeight() * scale) + spriteMargin * 2;
+    Sprite sprite;
+    sprite.crisp = juce::Image (juce::Image::SingleChannel, w, h, true);
+    {
+        juce::Graphics g (sprite.crisp);
+        g.addTransform (juce::AffineTransform::scale (scale).translated (static_cast<float> (spriteMargin), static_cast<float> (spriteMargin)));
+        g.setColour (juce::Colours::white);
+        g.fillPath (cathode (c, area, characters == Characters::alphanumeric));
+    }
+    sprite.glow = sprite.crisp.createCopy();
+    render::blurAlpha (sprite.glow, 4.5f * scale);
+    return sprites.emplace (c, std::move (sprite)).first->second;
 }
 
 void NixieDisplay::paint (juce::Graphics& g)
@@ -239,9 +245,6 @@ void NixieDisplay::paint (juce::Graphics& g)
         renderTubes (scale);
         renderFront (scale);
     }
-    const auto firstGlyphs = glyphAreaIn (tubeBounds (0));
-    if (! sprites[0].crisp.isValid() || ! juce::approximatelyEqual (spriteScale, scale))
-        renderSprites (scale, firstGlyphs);
 
     g.drawImageTransformed (glassLayer, juce::AffineTransform::scale (1.0f / scale));
 
@@ -254,11 +257,11 @@ void NixieDisplay::paint (juce::Graphics& g)
         const auto tube = tubeBounds (i);
         const auto glyphs = glyphAreaIn (tube);
         const auto& cell = cells[static_cast<size_t> (i)];
-        const auto index = spriteIndex (cell.digit);
+        const auto shows = cell.digit != ' ' && cell.digit != 0;
 
-        if (index >= 0 && intensity > 0.0f)
+        if (shows && intensity > 0.0f)
         {
-            const auto& sprite = sprites[static_cast<size_t> (index)];
+            const auto& sprite = spriteFor (cell.digit, scale, glyphs);
             const auto transform = juce::AffineTransform::translation (static_cast<float> (-spriteMargin), static_cast<float> (-spriteMargin))
                                        .scaled (1.0f / scale)
                                        .translated (glyphs.getX(), glyphs.getY());

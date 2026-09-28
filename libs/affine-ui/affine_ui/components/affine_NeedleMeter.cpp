@@ -3,7 +3,6 @@ namespace affine
 namespace
 {
 constexpr float housingInset = 6.0f, bezel = 11.0f, sweep = 0.78f; // sweep: half-angle in radians
-const juce::Colour ink { 0xff1d1b18 };
 } // namespace
 
 NeedleMeter::NeedleMeter()
@@ -24,6 +23,7 @@ void NeedleMeter::setTheme (const Theme& t)
 void NeedleMeter::setScale (Scale s)
 {
     scale = std::move (s);
+    position = target = scale.restPosition;
     face = {};
     repaint();
 }
@@ -39,14 +39,27 @@ void NeedleMeter::setCaption (const juce::String& caption)
 
 void NeedleMeter::setBacklight (juce::Colour c)
 {
-    backlight = c;
+    style.backlight = c;
     face = {};
     repaint();
 }
 
+void NeedleMeter::setFace (const Face& f)
+{
+    style = f;
+    face = {};
+    repaint();
+}
+
+void NeedleMeter::setBallistics (float frequencyHz, float damping)
+{
+    naturalFrequency = juce::jmax (0.1f, frequencyHz);
+    dampingRatio = juce::jmax (0.05f, damping);
+}
+
 void NeedleMeter::setReading (float value, bool live)
 {
-    const auto p = live && scale.toPosition ? juce::jlimit (0.0f, 1.0f, scale.toPosition (value)) : 0.0f;
+    const auto p = live && scale.toPosition ? juce::jlimit (0.0f, 1.0f, scale.toPosition (value)) : scale.restPosition;
     lampTarget = live ? 1.0f : 0.0f;
     if (juce::approximatelyEqual (p, target) && juce::approximatelyEqual (lamp, lampTarget)
         && juce::approximatelyEqual (position, target))
@@ -74,9 +87,9 @@ void NeedleMeter::timerCallback()
     const auto dt = static_cast<float> (juce::jlimit (0.0, 0.1, (now - lastTick) * 0.001));
     lastTick = now;
 
-    // Moving-coil ballistics: a lightly under-damped spring, about 300 ms to settle.
-    constexpr float omega = juce::MathConstants<float>::twoPi * 2.1f, zeta = 0.74f;
-    constexpr int steps = 4;
+    // Moving-coil ballistics: a lightly under-damped spring.
+    const auto omega = juce::MathConstants<float>::twoPi * naturalFrequency, zeta = dampingRatio;
+    constexpr int steps = 8;
     const auto h = dt / static_cast<float> (steps);
     for (int i = 0; i < steps; ++i)
     {
@@ -105,8 +118,9 @@ juce::Rectangle<float> NeedleMeter::faceBounds() const
 
 juce::Point<float> NeedleMeter::pivot() const
 {
+    // Hang the arc a quarter of the way down the card, whatever its proportions.
     const auto f = faceBounds();
-    return { f.getCentreX(), f.getBottom() + f.getHeight() * 0.14f };
+    return { f.getCentreX(), f.getY() + f.getHeight() * 0.27f + arcRadius() };
 }
 
 float NeedleMeter::arcRadius() const
@@ -132,14 +146,22 @@ void NeedleMeter::renderFace (float physicalScale)
 
     const auto centre = pivot();
     const auto radius = arcRadius();
+    // Printing is sized for a 180 px card and shrinks, within legibility, on smaller meters.
+    const auto k = juce::jlimit (0.60f, 1.0f, area.getHeight() / 180.0f);
 
     // Backlit card: the lamp sits low behind the scale, so light falls off upwards and outwards.
+    const auto backlight = style.backlight;
+    const auto ink = style.ink;
     juce::ColourGradient light (backlight.brighter (0.12f), area.getCentreX(), area.getBottom() - area.getHeight() * 0.10f,
-                                backlight.darker (1.1f), area.getX() - area.getWidth() * 0.12f, area.getY() - area.getHeight() * 0.25f, true);
+                                backlight.darker (style.vignette), area.getX() - area.getWidth() * 0.12f, area.getY() - area.getHeight() * 0.25f, true);
     light.addColour (0.30, backlight);
-    light.addColour (0.62, backlight.darker (0.30f));
+    light.addColour (0.62, backlight.darker (style.vignette * 0.3f));
     g.setGradientFill (light);
     g.fillRect (area);
+    if (style.twinLamps)
+        for (auto fraction : { 0.24f, 0.76f })
+            render::halo (g, { area.getX() + area.getWidth() * fraction, area.getBottom() - area.getHeight() * 0.06f },
+                          area.getWidth() * 0.34f, backlight.brighter (0.35f), 0.55f);
 
     // Paper fibre.
     for (int i = 0; i < 1400; ++i)
@@ -157,7 +179,18 @@ void NeedleMeter::renderFace (float physicalScale)
         return p;
     };
 
+    // Red zone: a band just inside the scale arc.
+    if (style.zoneFrom <= 1.0f)
+    {
+        juce::Path zone;
+        zone.addCentredArc (centre.x, centre.y, radius - 4.0f, radius - 4.0f, 0.0f,
+                            angleFor (juce::jlimit (0.0f, 1.0f, style.zoneFrom)), sweep, true);
+        g.setColour (style.zone);
+        g.strokePath (zone, juce::PathStrokeType (6.5f * k, juce::PathStrokeType::curved, juce::PathStrokeType::butt));
+    }
+
     // Anti-parallax mirror band.
+    if (style.mirror)
     {
         juce::ColourGradient mirror (juce::Colour (0xffe4e7ea), centre.x - radius, centre.y - radius,
                                      juce::Colour (0xff5f666d), centre.x + radius * 0.7f, centre.y - radius * 0.3f, false);
@@ -187,25 +220,33 @@ void NeedleMeter::renderFace (float physicalScale)
     {
         g.setColour (ink.withAlpha (0.85f));
         for (auto v : scale.minors)
-            tick (v, 5.0f, 1.0f);
+            tick (v, 5.0f * k, 1.0f);
         g.setColour (ink);
-        g.setFont (fonts::label (15.5f, 0.0f));
+        g.setFont (fonts::label (juce::jmax (10.5f, 15.5f * k), 0.0f));
         for (auto v : scale.majors)
         {
-            tick (v, 9.5f, 1.8f);
+            tick (v, 9.5f * k, 1.8f);
             const auto a = angleFor (juce::jlimit (0.0f, 1.0f, scale.toPosition (v)));
-            const auto at = centre.getPointOnCircumference (radius + 19.0f, a);
+            const auto at = centre.getPointOnCircumference (radius + 19.0f * k, a);
             g.drawText (scale.format ? scale.format (v) : juce::String (v),
                         juce::Rectangle<float> (40.0f, 18.0f).withCentre (at), juce::Justification::centred, false);
         }
     }
 
+    if (style.brand.isNotEmpty())
+    {
+        g.setColour (ink.withAlpha (0.75f));
+        g.setFont (fonts::label (10.0f, 0.3f));
+        g.drawText (style.brand, juce::Rectangle<float> (60.0f, 12.0f).withPosition (area.getX() + 12.0f, area.getBottom() - 20.0f),
+                    juce::Justification::centredLeft, false);
+    }
+
     g.setColour (ink);
-    g.setFont (fonts::wordmark (12.0f, 0.22f));
+    g.setFont (fonts::wordmark (juce::jmax (9.0f, 12.0f * k), 0.22f));
     g.drawText (scale.unit, juce::Rectangle<float> (area.getWidth() * 0.5f, 16.0f).withCentre ({ area.getCentreX(), area.getY() + area.getHeight() * 0.58f }),
                 juce::Justification::centred, false);
     g.setColour (ink.withAlpha (0.8f));
-    g.setFont (fonts::label (11.0f, 0.26f));
+    g.setFont (fonts::label (juce::jmax (9.0f, 11.0f * k), 0.26f));
     g.drawText (scale.caption.toUpperCase(),
                 juce::Rectangle<float> (area.getWidth(), 14.0f).withCentre ({ area.getCentreX(), area.getY() + area.getHeight() * 0.71f }),
                 juce::Justification::centred, false);
@@ -228,9 +269,16 @@ void NeedleMeter::paint (juce::Graphics& g)
     const auto housing = getLocalBounds().toFloat().reduced (housingInset);
     const auto area = faceBounds();
 
-    // Housing: a black moulded bezel standing slightly proud of the faceplate.
-    render::softShadow (g, housing, 9.0f, 9.0f, { 0.0f, 4.0f }, 0.6f);
+    if (style.bezel == Face::Bezel::flush)
     {
+        // Behind a glass front the meter shows only a thin black frame.
+        g.setColour (juce::Colour (0xff020303));
+        g.fillRoundedRectangle (area.expanded (3.0f), 4.0f);
+    }
+    else
+    {
+        // Housing: a black moulded bezel standing slightly proud of the faceplate.
+        render::softShadow (g, housing, 9.0f, 9.0f, { 0.0f, 4.0f }, 0.6f);
         juce::ColourGradient body (juce::Colour (0xff30343a), housing.getX(), housing.getY(),
                                    juce::Colour (0xff0a0b0d), housing.getX(), housing.getBottom(), false);
         body.addColour (0.08, juce::Colour (0xff24272c));
@@ -239,12 +287,28 @@ void NeedleMeter::paint (juce::Graphics& g)
         g.setColour (juce::Colours::white.withAlpha (0.13f));
         g.drawRoundedRectangle (housing.reduced (0.6f), 9.0f, 1.0f);
 
-        // Inner chamfer down to the glass: lit from above, so its lower edge catches light.
         const auto chamfer = area.expanded (4.0f);
-        juce::ColourGradient bevel (juce::Colour (0xff050506), chamfer.getX(), chamfer.getY(),
-                                    juce::Colour (0xff3a3e44), chamfer.getX(), chamfer.getBottom(), false);
-        g.setGradientFill (bevel);
-        g.fillRoundedRectangle (chamfer, 4.0f);
+        if (style.bezel == Face::Bezel::chrome)
+        {
+            // Polished ring: the ceiling reflects in its upper half, the floor in its lower half.
+            juce::ColourGradient chrome (juce::Colour (0xfff4f6f8), chamfer.getX(), chamfer.getY(),
+                                         juce::Colour (0xff3a3d42), chamfer.getX(), chamfer.getBottom(), false);
+            chrome.addColour (0.35, juce::Colour (0xffb9bec4));
+            chrome.addColour (0.52, juce::Colour (0xff5d6167));
+            chrome.addColour (0.80, juce::Colour (0xffd9dde1));
+            g.setGradientFill (chrome);
+            g.fillRoundedRectangle (chamfer.expanded (1.5f), 5.5f);
+            g.setColour (juce::Colours::black.withAlpha (0.7f));
+            g.fillRoundedRectangle (area.expanded (1.5f), 3.0f);
+        }
+        else
+        {
+            // Inner chamfer down to the glass: lit from above, so its lower edge catches light.
+            juce::ColourGradient bevel (juce::Colour (0xff050506), chamfer.getX(), chamfer.getY(),
+                                        juce::Colour (0xff3a3e44), chamfer.getX(), chamfer.getBottom(), false);
+            g.setGradientFill (bevel);
+            g.fillRoundedRectangle (chamfer, 4.0f);
+        }
     }
 
     if (! face.isValid() || ! juce::approximatelyEqual (faceScale, physicalScale))

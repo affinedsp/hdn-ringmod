@@ -4,17 +4,25 @@ namespace
 {
 using namespace shading;
 
-// Knob profile as fractions of the radius, from the centre outwards.
-constexpr float chamferEdge = 0.636f, rimStart = 0.950f;
-
-enum class Material { cap, chamfer, grip, skirt };
+enum class Zone { cap, chamfer, grip, skirt };
 
 struct Surface
 {
     V3 normal;
-    Material material;
+    Zone zone;
     float occlusion;
 };
+
+// Radii of the knob's zones as fractions of its radius.
+struct Profile
+{
+    float cap, chamfer, grip, rim, dome;
+};
+
+Profile profileFor (const KnobFinish& finish) noexcept
+{
+    return { finish.capRatio, finish.capRatio + 0.036f, finish.gripRatio, 0.950f, finish.capDome };
+}
 
 const V3 keyLight = V3 { -0.30f, -0.78f, 0.62f }.normalised();
 const V3 fillLight = V3 { 0.55f, 0.35f, 0.76f }.normalised();
@@ -30,102 +38,116 @@ float environment (V3 r) noexcept
     return 0.030f + 1.35f * box + 0.20f * sky * sky;
 }
 
-Surface surfaceAt (float r, float phi, float gripAngle, int ridges, bool knurled) noexcept
+Surface surfaceAt (float r, float phi, float gripAngle, int ridges, float ridgeDepth, bool shaped, const Profile& p) noexcept
 {
     const auto c = std::cos (phi), s = std::sin (phi);
     const V3 radial { c, s, 0.0f }, tangent { -s, c, 0.0f }, up { 0.0f, 0.0f, 1.0f };
     float slope = 0.0f, occlusion = 1.0f;
-    Material material = Material::cap;
+    Zone zone = Zone::cap;
 
-    if (r < KnobRenderer::capRadius)
+    if (r < p.cap)
     {
-        // A barely domed face keeps the reflection alive across the cap.
-        slope = 0.06f * r / KnobRenderer::capRadius;
+        // A slightly domed face keeps the reflection alive across the cap.
+        slope = p.dome * r / p.cap;
     }
-    else if (r < chamferEdge)
+    else if (r < p.chamfer)
     {
-        material = Material::chamfer;
-        slope = mix (0.55f, 0.95f, (r - KnobRenderer::capRadius) / (chamferEdge - KnobRenderer::capRadius));
+        zone = Zone::chamfer;
+        slope = mix (0.55f, 0.95f, (r - p.cap) / (p.chamfer - p.cap));
     }
-    else if (r < KnobRenderer::skirtRadius)
+    else if (r < p.grip)
     {
-        material = Material::grip;
+        zone = Zone::grip;
         slope = 1.00f;
-        occlusion = mix (0.55f, 1.0f, smoothstep (KnobRenderer::skirtRadius, chamferEdge + 0.04f, r));
+        occlusion = mix (0.55f, 1.0f, smoothstep (p.grip, p.chamfer + 0.04f, r));
     }
-    else if (r < rimStart)
+    else if (r < p.rim)
     {
-        material = Material::skirt;
+        zone = Zone::skirt;
         slope = 0.22f;
-        occlusion = mix (0.30f, 1.0f, smoothstep (KnobRenderer::skirtRadius, KnobRenderer::skirtRadius + 0.07f, r));
+        occlusion = mix (0.30f, 1.0f, smoothstep (p.grip, p.grip + 0.07f, r));
     }
     else
     {
-        material = Material::skirt;
-        const auto t = saturate ((r - rimStart) / (1.0f - rimStart));
+        zone = Zone::skirt;
+        const auto t = saturate ((r - p.rim) / (1.0f - p.rim));
         slope = mix (0.22f, 1.35f, t * t);
     }
 
     auto normal = radial * std::sin (slope) + up * std::cos (slope);
 
-    if (material == Material::grip && knurled)
+    if (zone == Zone::grip && shaped && ridgeDepth > 0.0f)
     {
         const auto phase = (phi - gripAngle) * static_cast<float> (ridges);
-        normal = (normal + tangent * (0.62f * std::sin (phase))).normalised();
-        occlusion *= 0.62f + 0.38f * (0.5f + 0.5f * std::cos (phase));
+        normal = (normal + tangent * (ridgeDepth * std::sin (phase))).normalised();
+        occlusion *= 1.0f - 0.61f * ridgeDepth * (0.5f - 0.5f * std::cos (phase));
     }
 
-    return { normal, material, occlusion };
+    return { normal, zone, occlusion };
 }
 
-V3 shade (const Surface& surface, float r, float phi, const KnobFinish& finish) noexcept
+V3 shadeMaterial (KnobFinish::Material material, juce::Colour colour, const Surface& surface, float r, float phi) noexcept
 {
     const auto n = surface.normal;
     const auto reflected = reflect ({ 0.0f, 0.0f, -1.0f }, n);
     const auto key = saturate (n.dot (keyLight));
     const auto fill = saturate (n.dot (fillLight)) * 0.18f;
     const auto specular = saturate (n.dot (halfway));
+    const auto face = surface.zone == Zone::cap;
     const V3 white { 1.0f, 1.0f, 1.0f };
+    const auto base = linear (colour);
 
-    switch (surface.material)
+    switch (material)
     {
-        case Material::cap:
+        case KnobFinish::Material::spunAluminium:
+        case KnobFinish::Material::polishedAluminium:
         {
-            const auto metal = linear (finish.cap);
-            const V3 t { -std::sin (phi), std::cos (phi), 0.0f };
-            const auto th = t.dot (halfway);
-            const auto kajiyaKay = std::sqrt (std::max (0.0f, 1.0f - th * th));
-            // Lathe grooves: fine concentric rings with slow variation in depth.
-            const auto grooves = 0.72f + 0.56f * fbm (r * 310.0f, 3.7f, 3, 11);
-            const auto sheen = std::pow (kajiyaKay, 64.0f) * grooves;
-            const auto broad = std::pow (kajiyaKay, 9.0f) * 0.22f;
-            const auto face = metal * (0.05f + 0.28f * key + fill) + metal * (environment (reflected) * 0.42f)
-                            + metal * ((sheen * 0.95f + broad) * grooves);
-            // A soft hot spot where the softbox reflects near the centre.
-            const auto hot = std::exp (-std::pow ((r - 0.18f) / 0.30f, 2.0f)) * 0.05f;
-            return (face + white * hot) * surface.occlusion;
-        }
-        case Material::chamfer:
-        {
-            const auto metal = linear (finish.cap);
-            const auto bright = metal * (0.10f + 0.30f * key + fill) + metal * (environment (reflected) * 0.95f)
+            const auto polished = material == KnobFinish::Material::polishedAluminium;
+            if (face)
+            {
+                const V3 t { -std::sin (phi), std::cos (phi), 0.0f };
+                const auto th = t.dot (halfway);
+                const auto kajiyaKay = std::sqrt (std::max (0.0f, 1.0f - th * th));
+                // Lathe grooves: fine concentric rings with slow variation in depth.
+                const auto grooves = 0.72f + 0.56f * fbm (r * 310.0f, 3.7f, 3, 11);
+                const auto sheen = std::pow (kajiyaKay, 64.0f) * grooves;
+                const auto broad = std::pow (kajiyaKay, 9.0f) * 0.22f;
+                const auto mirror = polished ? 0.85f : 0.42f;
+                const auto lit = base * (0.05f + 0.28f * key + fill) + base * (environment (reflected) * mirror)
+                               + base * ((sheen * (polished ? 0.55f : 0.95f) + broad) * grooves);
+                // A soft hot spot where the softbox reflects near the centre.
+                const auto hot = std::exp (-std::pow ((r - 0.18f) / 0.30f, 2.0f)) * (polished ? 0.09f : 0.05f);
+                return (lit + white * hot) * surface.occlusion;
+            }
+            const auto bright = base * (0.10f + 0.30f * key + fill) + base * (environment (reflected) * (polished ? 1.10f : 0.95f))
                               + white * (std::pow (specular, 90.0f) * 1.6f);
             return bright * surface.occlusion;
         }
-        case Material::grip:
+        case KnobFinish::Material::glossPlastic:
         {
-            const auto albedo = linear (finish.body);
-            return (albedo * (0.35f + 2.2f * key + fill) + white * (environment (reflected) * 0.070f)
-                    + white * (std::pow (specular, 18.0f) * 0.20f)) * surface.occlusion;
+            // A dyed moulding under a clear gloss: dark diffuse body, sharp softbox reflections.
+            const auto fresnel = 0.04f + 0.96f * std::pow (1.0f - saturate (n.z), 5.0f);
+            const auto reflection = environment (reflected) * (0.10f + 1.6f * fresnel);
+            const auto highlight = std::pow (specular, 180.0f) * 1.5f + std::pow (specular, 36.0f) * 0.05f;
+            return (base * (0.25f + 1.5f * key + fill) + white * (reflection + highlight)) * surface.occlusion;
         }
-        case Material::skirt:
+        case KnobFinish::Material::anodised:
         default:
         {
-            const auto albedo = linear (finish.body);
-            return (albedo * (0.30f + 1.6f * key + fill) + white * (environment (reflected) * 0.030f)
-                    + white * (std::pow (specular, 14.0f) * 0.07f)) * surface.occlusion;
+            if (surface.zone == Zone::skirt)
+                return (base * (0.30f + 1.6f * key + fill) + white * (environment (reflected) * 0.030f)
+                        + white * (std::pow (specular, 14.0f) * 0.07f)) * surface.occlusion;
+            return (base * (0.35f + 2.2f * key + fill) + white * (environment (reflected) * 0.070f)
+                    + white * (std::pow (specular, 18.0f) * 0.20f)) * surface.occlusion;
         }
     }
+}
+
+V3 shade (const Surface& surface, float r, float phi, const KnobFinish& finish) noexcept
+{
+    const auto onCap = surface.zone == Zone::cap || surface.zone == Zone::chamfer;
+    return shadeMaterial (onCap ? finish.capMaterial : finish.bodyMaterial,
+                          onCap ? finish.cap : finish.body, surface, r, phi);
 }
 
 template <typename Fn>
@@ -173,7 +195,8 @@ void KnobRenderer::prepare (int diameterPx)
     diameter = diameterPx;
     shadowMargin = juce::roundToInt (static_cast<float> (diameter) * 0.26f) + 2;
     // Keep ridge pitch roughly constant in physical pixels, within a believable range.
-    ridges = juce::jlimit (24, 60, juce::roundToInt (static_cast<float> (diameter) * 0.36f));
+    ridges = finish.ridges > 0 ? finish.ridges
+                               : juce::jlimit (24, 60, juce::roundToInt (static_cast<float> (diameter) * 0.36f));
     gripAngle = std::numeric_limits<float>::quiet_NaN();
     renderBody();
     renderShadow();
@@ -182,14 +205,15 @@ void KnobRenderer::prepare (int diameterPx)
 void KnobRenderer::renderBody()
 {
     body = juce::Image (juce::Image::ARGB, diameter, diameter, true);
-    renderSupersampled (body, diameter, 3, body.getBounds(), [this] (float x, float y, float& weight)
+    const auto profile = profileFor (finish);
+    renderSupersampled (body, diameter, 3, body.getBounds(), [this, profile] (float x, float y, float& weight)
     {
         const auto r = std::sqrt (x * x + y * y);
         if (r > 1.0f)
             return V3 {};
         weight = 1.0f;
         const auto phi = std::atan2 (y, x);
-        return shade (surfaceAt (r, phi, 0.0f, ridges, false), r, phi, finish);
+        return shade (surfaceAt (r, phi, 0.0f, ridges, finish.ridgeDepth, false, profile), r, phi, finish);
     });
 }
 
@@ -235,7 +259,8 @@ void KnobRenderer::renderGrip (float angle)
 
     const auto radius = static_cast<float> (diameter) * 0.5f;
     const auto overlap = 1.5f / radius;
-    const auto inner = chamferEdge - overlap, outer = skirtRadius + overlap;
+    const auto profile = profileFor (finish);
+    const auto inner = profile.chamfer - overlap, outer = profile.grip + overlap;
     // atan2 has 0 pointing right; knob angles have 0 pointing up.
     const auto ridgeAngle = angle - juce::MathConstants<float>::halfPi;
 
@@ -247,7 +272,7 @@ void KnobRenderer::renderGrip (float angle)
         // Fade the band edges over matching body pixels so the seam is invisible.
         weight = smoothstep (inner, inner + overlap, r) * (1.0f - smoothstep (outer - overlap, outer, r));
         const auto phi = std::atan2 (y, x);
-        return shade (surfaceAt (r, phi, ridgeAngle, ridges, true), r, phi, finish);
+        return shade (surfaceAt (r, phi, ridgeAngle, ridges, finish.ridgeDepth, true, profile), r, phi, finish);
     });
 }
 } // namespace affine
