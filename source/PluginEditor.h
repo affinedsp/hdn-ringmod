@@ -5,9 +5,8 @@
 
 namespace RingmodTheme
 {
-// Petrol anodising, neon-orange Nixie carrier and a cyan vacuum-fluorescent input display.
+// Broadcast finish: blue-grey hammertone, bakelite knobs, neon tubes and a phosphor scope.
 affine::Theme theme();
-affine::Theme inputDisplayTheme();
 }
 
 class PitchDisplay final : public juce::Component,
@@ -20,6 +19,7 @@ public:
     void setState(float detectedPitchHz, float confidence, bool pitchTracking, float manualRateHz,
                   float acceptanceThreshold, bool carrierRunning, bool audioLive);
     void paint(juce::Graphics&) override;
+    void resized() override;
     std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
 
     juce::String getAccessibleValueText() const;
@@ -29,7 +29,7 @@ private:
     bool hasPitch() const;
 
     affine::Theme theme;
-    affine::render::GlowText noteGlow, detailGlow;
+    affine::NixieDisplay note;
     float pitchHz = 0.0f;
     float confidenceValue = 0.0f;
     float manualRate = 440.0f;
@@ -75,8 +75,8 @@ public:
     void resized() override;
     int getControlParameterIndex(juce::Component&) override;
 
-    static constexpr int width = 900;
-    static constexpr int height = 490;
+    static constexpr int width = 960;
+    static constexpr int height = 570;
 
 private:
     void timerCallback() override;
@@ -89,6 +89,7 @@ private:
     affine::Faceplate faceplate;
     PitchDisplay pitchDisplay;
     CarrierDisplay carrierDisplay;
+    affine::NeedleMeter confidenceMeter;
 
     affine::Knob smoothingKnob, sensitivityKnob, rateMultKnob, manualRateKnob, mixKnob;
     affine::SelectorKeys modeKeys, waveformKeys;
@@ -96,6 +97,8 @@ private:
     uint32_t lastBlockCount = 0;
     double lastBlockMs = 0.0;
     int lastModeIndex = -1;
+    float shownThreshold = -1.0f;
+    bool lockLit = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HdnRingmodAudioProcessorEditor)
 };

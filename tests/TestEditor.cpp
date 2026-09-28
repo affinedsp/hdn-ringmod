@@ -108,7 +108,7 @@ TEST_CASE("Ring modulator theme: printed and emitted colours keep readable contr
     }
 
     REQUIRE(contrastRatio(palette.accent, palette.glass) >= 4.5f);
-    REQUIRE(contrastRatio(RingmodTheme::inputDisplayTheme().palette.accent, palette.glass) >= 4.5f);
+    REQUIRE(contrastRatio(palette.readoutInk, palette.readoutBacklight) >= 4.5f);
 }
 
 TEST_CASE("Family typefaces are bundled rather than taken from the system")
@@ -377,6 +377,14 @@ TEST_CASE("Editor: renders every display state for review")
     };
     auto capture = [&](const juce::String& name, float scale)
     {
+        // Show the steady state rather than a frame of a needle's or pointer's movement.
+        for (auto* child : editor.getChildren())
+        {
+            if (auto* meter = dynamic_cast<affine::NeedleMeter*>(child))
+                meter->settle();
+            if (auto* dial = dynamic_cast<affine::TuningDial*>(child))
+                dial->settle();
+        }
         auto image = editor.createComponentSnapshot(editor.getLocalBounds(), true, scale);
         auto file = folder.getChildFile(name + ".png");
         file.deleteFile();

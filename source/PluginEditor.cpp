@@ -7,14 +7,22 @@ namespace
 constexpr float pitchConfidence = 0.1f;
 constexpr double freshnessMs = 400.0;
 
-const juce::Rectangle<int> modeArea { 690, 22, 170, 64 };
-const juce::Rectangle<int> inputArea { 40, 118, 330, 124 };
-const juce::Rectangle<int> carrierArea { 412, 118, 448, 124 };
-const juce::Rectangle<float> trackingFrame { 32.0f, 274.0f, 240.0f, 194.0f };
-const juce::Rectangle<float> carrierFrame { 284.0f, 274.0f, 424.0f, 194.0f };
-const juce::Rectangle<float> outputFrame { 720.0f, 274.0f, 148.0f, 194.0f };
-const juce::Rectangle<int> waveformArea { 578, 306, 124, 150 };
-constexpr int knobCentreY = 374;
+// Layout, in logical pixels. The rack ears frame an 880 px panel.
+constexpr float earWidth = 40.0f;
+const juce::Rectangle<float> nameplateArea { 64.0f, 22.0f, 300.0f, 42.0f };
+const juce::Rectangle<int> modeArea { 716, 18, 180, 66 };
+const juce::Rectangle<int> inputArea { 64, 134, 212, 146 };
+const juce::Point<float> lockLamp { 316.0f, 146.0f };
+const juce::Rectangle<int> confidenceArea { 292, 160, 158, 124 };
+const juce::Rectangle<int> carrierArea { 480, 134, 416, 146 };
+const juce::Rectangle<float> trackingFrame { 64.0f, 316.0f, 228.0f, 224.0f };
+const juce::Rectangle<float> carrierFrame { 304.0f, 316.0f, 408.0f, 224.0f };
+const juce::Rectangle<float> outputFrame { 724.0f, 316.0f, 172.0f, 224.0f };
+const juce::Rectangle<int> waveformArea { 594, 350, 112, 176 };
+constexpr int knobCentreY = 424;
+
+const juce::Colour lockGreen { 0xff49d16b };
+const juce::Colour phosphor { 0xff7dffa0 };
 
 juce::String whole(double value)
 {
@@ -36,18 +44,37 @@ juce::Path twoCycles(int waveform)
 affine::Theme RingmodTheme::theme()
 {
     affine::Theme t;
-    t.panel.base = juce::Colour(0xff1f3538);
-    t.panel.brushing = 0.45f;
-    t.knob.pointer = juce::Colour(0xff1c1f22);
-    t.palette.accent = juce::Colour(0xffff6a1c);
-    t.palette.glassTint = juce::Colour(0xff111615);
-    return t;
-}
+    t.panel.texture = affine::PanelFinish::Texture::hammertone;
+    t.panel.base = juce::Colour(0xffa9b0b5);
+    t.panel.grain = 0.035f;
+    t.panel.mottle = 0.12f;
+    t.panel.sheen = 0.8f;
+    t.panel.dimple = 11.0f;
 
-affine::Theme RingmodTheme::inputDisplayTheme()
-{
-    auto t = theme();
-    t.palette.accent = juce::Colour(0xff5cf2d6);
+    using Material = affine::KnobFinish::Material;
+    t.knob.cap = juce::Colour(0xff141414);
+    t.knob.body = juce::Colour(0xff121212);
+    t.knob.capMaterial = Material::glossPlastic;
+    t.knob.bodyMaterial = Material::glossPlastic;
+    t.knob.pointer = juce::Colour(0xfff2efe6);
+    t.knob.index = juce::Colour(0xfff2efe6);
+    t.knob.capRatio = 0.66f;
+    t.knob.gripRatio = 0.86f;
+    t.knob.capDome = 0.28f;
+    t.knob.ridges = 20;
+    t.knob.ridgeDepth = 0.9f;
+
+    auto& p = t.palette;
+    p.silkscreen = juce::Colour(0xff1b1a17);
+    p.silkscreenDim = juce::Colour(0xff25231f);
+    p.accent = juce::Colour(0xffff6a1c);
+    p.attention = juce::Colour(0xffffb238);
+    p.danger = juce::Colour(0xffe5483b);
+    p.glassTint = juce::Colour(0xff111615);
+    p.lamp = affine::Palette::Lamp::jewel;
+    p.readout = affine::Palette::Readout::backlit;
+    p.readoutBacklight = juce::Colour(0xfff1d58c);
+    p.readoutInk = juce::Colour(0xff1f1a12);
     return t;
 }
 
@@ -77,13 +104,22 @@ private:
 PitchDisplay::PitchDisplay()
 {
     setTitle("Input pitch");
-    setTooltip("Tracked input pitch. The carrier runs once a detection clears the Sensitivity mark on the confidence bar.");
+    setTooltip("Tracked input pitch. The carrier runs once a detection reaches the green zone of the confidence meter, set by Sensitivity.");
+    note.setCharacters(affine::NixieDisplay::Characters::alphanumeric);
+    note.setNumTubes(3);
+    addAndMakeVisible(note);
 }
 
 void PitchDisplay::setTheme(const affine::Theme& t)
 {
     theme = t;
+    note.setTheme(t);
     repaint();
+}
+
+void PitchDisplay::resized()
+{
+    note.setBounds(16, 8, 180, 94);
 }
 
 bool PitchDisplay::hasPitch() const
@@ -111,6 +147,10 @@ void PitchDisplay::setState(float detectedPitchHz, float confidence, bool pitchT
     trackingMode = pitchTracking;
     locked = carrierRunning;
     live = audioLive;
+
+    note.setText(hasPitch() ? juce::String(NoteNames::fromFrequency(pitchHz).c_str()) : juce::String());
+    note.setIntensity(hasPitch() ? (locked ? 1.0f : 0.45f) : 0.0f);
+
     auto accessibleValue = getAccessibleValueText();
     setDescription(accessibleValue);
     repaint();
@@ -146,85 +186,36 @@ std::unique_ptr<juce::AccessibilityHandler> PitchDisplay::createAccessibilityHan
 void PitchDisplay::paint(juce::Graphics& g)
 {
     const auto bounds = getLocalBounds().toFloat();
-    affine::render::glass(g, bounds, theme.palette);
+    affine::render::glass(g, bounds.withHeight(110.0f), theme.palette);
 
-    const auto vfd = theme.palette.accent;
-    const auto unlit = vfd.withMultipliedSaturation(0.45f).withMultipliedBrightness(0.12f);
-    const auto legendColour = [&](bool lit) { return lit ? vfd.withAlpha(0.9f) : unlit.brighter(0.35f); };
-
-    // Fourteen-segment note, its unlit segments faintly visible behind it.
-    const auto noteArea = juce::Rectangle<float>(20.0f, 16.0f, 150.0f, 58.0f);
-    const auto noteFont = affine::fonts::segment(44.0f, 0.05f);
-    g.setColour(unlit);
-    g.setFont(noteFont);
-    g.drawText("~~~", noteArea, juce::Justification::centredLeft, false);
-
-    juce::String note;
     juce::String detail;
+    float level = 1.0f;
     if (!trackingMode)
     {
-        note = "OFF";
         detail = "MANUAL CARRIER";
+        level = 0.55f;
     }
     else if (!live)
     {
         detail = "NO AUDIO";
+        level = 0.0f;
     }
     else if (hasPitch())
     {
-        note = NoteNames::fromFrequency(pitchHz).c_str();
         detail = juce::String(pitchHz, 1) + " HZ";
     }
     else
     {
         detail = "LISTENING";
+        level = 0.55f;
     }
 
-    const auto strength = hasPitch() && !locked ? 0.45f : 1.0f;
-    noteGlow.draw(g, note, noteFont, noteArea, juce::Justification::centredLeft, vfd.withMultipliedAlpha(strength), 3.0f, 0.9f);
-    detailGlow.draw(g, detail, affine::fonts::readout(15.0f, 0.08f), { 22.0f, 82.0f, 190.0f, 22.0f },
-                    juce::Justification::centredLeft, vfd.withMultipliedAlpha(trackingMode && !live ? 0.55f : 0.95f), 2.2f, 0.6f);
-
-    // Lock lamp: lit only while the tracked carrier is actually running.
-    const auto column = juce::Rectangle<float>(214.0f, 20.0f, 100.0f, 84.0f);
-    affine::render::lamp(g, { column.getX() + 6.0f, column.getY() + 8.0f }, 7.0f, vfd, locked ? 1.0f : 0.0f);
-    g.setFont(affine::fonts::label(11.0f, 0.22f));
-    g.setColour(legendColour(locked));
-    g.drawText("LOCK", juce::Rectangle<float>(column.getX() + 18.0f, column.getY() + 1.0f, 70.0f, 14.0f),
-               juce::Justification::centredLeft, false);
-
-    g.setColour(legendColour(trackingMode && live));
-    g.drawText("CONFIDENCE", juce::Rectangle<float>(column.getX(), column.getY() + 30.0f, 100.0f, 14.0f),
-               juce::Justification::centredLeft, false);
-
-    const auto bar = juce::Rectangle<float>(column.getX(), column.getY() + 48.0f, 96.0f, 12.0f);
-    const auto segments = 10;
-    const auto gap = 2.4f;
-    const auto segmentWidth = (bar.getWidth() - gap * static_cast<float>(segments - 1)) / static_cast<float>(segments);
-    const auto level = trackingMode && live ? juce::jlimit(0.0f, 1.0f, confidenceValue) : 0.0f;
-    for (int i = 0; i < segments; ++i)
-    {
-        const auto segment = juce::Rectangle<float>(bar.getX() + static_cast<float>(i) * (segmentWidth + gap), bar.getY(),
-                                                    segmentWidth, bar.getHeight());
-        const auto lit = juce::jlimit(0.0f, 1.0f, level * static_cast<float>(segments) - static_cast<float>(i));
-        if (lit > 0.0f)
-        {
-            g.setColour(vfd.withAlpha(0.16f * lit));
-            g.fillRoundedRectangle(segment.expanded(2.0f), 2.5f);
-        }
-        g.setColour(unlit.interpolatedWith(vfd, lit));
-        g.fillRoundedRectangle(segment, 1.2f);
-    }
-
-    // The Sensitivity threshold a detection must clear before the carrier follows it.
-    if (trackingMode)
-    {
-        const auto x = bar.getX() + bar.getWidth() * juce::jlimit(0.0f, 1.0f, threshold);
-        juce::Path marker;
-        marker.addTriangle(x, bar.getBottom() + 3.0f, x - 3.5f, bar.getBottom() + 9.0f, x + 3.5f, bar.getBottom() + 9.0f);
-        g.setColour(vfd.withAlpha(live ? 0.85f : 0.4f));
-        g.fillPath(marker);
-    }
+    // An amber-lit legend window under the tubes.
+    const auto window = juce::Rectangle<float>(0.0f, 118.0f, bounds.getWidth(), 26.0f);
+    affine::render::litWindow(g, window, theme.palette.readoutBacklight, level);
+    g.setColour(theme.palette.readoutInk.withMultipliedAlpha(0.35f + 0.6f * level));
+    g.setFont(affine::fonts::readout(15.0f, 0.08f));
+    g.drawText(detail, window, juce::Justification::centred, false);
 }
 
 //==============================================================================
@@ -250,7 +241,7 @@ private:
 CarrierDisplay::CarrierDisplay()
 {
     setTitle("Carrier frequency");
-    setTooltip("Frequency the carrier oscillator is running at. Dark while the tracker has no pitch and the effect stays dry.");
+    setTooltip("Frequency the carrier oscillator is running at, with its waveform on the scope. Dark while the tracker has no pitch and the effect stays dry.");
     counter.setNumTubes(6);
     addAndMakeVisible(counter);
 }
@@ -287,7 +278,7 @@ void CarrierDisplay::setState(float carrierHz, int waveformIndex)
 
 void CarrierDisplay::resized()
 {
-    counter.setBounds(16, 10, 262, getHeight() - 20);
+    counter.setBounds(14, 10, 250, getHeight() - 20);
 }
 
 std::unique_ptr<juce::AccessibilityHandler> CarrierDisplay::createAccessibilityHandler()
@@ -299,42 +290,56 @@ std::unique_ptr<juce::AccessibilityHandler> CarrierDisplay::createAccessibilityH
 
 void CarrierDisplay::paint(juce::Graphics& g)
 {
-    affine::render::glass(g, getLocalBounds().toFloat(), theme.palette);
+    const auto bounds = getLocalBounds().toFloat();
+    affine::render::glass(g, bounds, theme.palette);
 
     const auto neon = theme.palette.accent;
     const auto running = carrier > 0.0f;
-    const auto unitArea = juce::Rectangle<float>(286.0f, 74.0f, 40.0f, 26.0f);
+    const auto unitArea = juce::Rectangle<float>(268.0f, 94.0f, 30.0f, 24.0f);
     unit.draw(g, "Hz", unitArea, neon.withMultipliedAlpha(running ? 1.0f : 0.25f), 2.5f, running ? 0.8f : 0.0f,
               [&](juce::Graphics& lg)
               {
-                  lg.setFont(affine::fonts::wordmark(14.0f, 0.06f));
+                  lg.setFont(affine::fonts::wordmark(13.0f, 0.06f));
                   lg.drawText("Hz", unitArea.withZeroOrigin(), juce::Justification::centredLeft, false);
               });
 
-    // A small scope screen tracing the selected carrier shape.
-    const auto scope = juce::Rectangle<float>(338.0f, 20.0f, 94.0f, getHeight() - 40.0f);
-    g.setColour(juce::Colour(0xff0a0e0d));
-    g.fillRoundedRectangle(scope, 3.0f);
-    g.setColour(neon.withAlpha(0.10f));
-    for (int i = 1; i < 4; ++i)
+    // A round phosphor scope tracing the selected carrier shape.
+    const auto crt = juce::Rectangle<float>(112.0f, 112.0f).withCentre({ bounds.getRight() - 64.0f, bounds.getCentreY() });
+    juce::ColourGradient bezel(juce::Colour(0xff3b3f44), crt.getX(), crt.getY(), juce::Colour(0xff0b0c0e), crt.getX(), crt.getBottom(), false);
+    g.setGradientFill(bezel);
+    g.fillEllipse(crt.expanded(5.0f));
+    const auto screen = crt.reduced(4.0f);
+    juce::ColourGradient glassFace(juce::Colour(0xff0f2616), screen.getCentreX(), screen.getCentreY(),
+                                   juce::Colour(0xff030805), screen.getX(), screen.getY(), true);
+    g.setGradientFill(glassFace);
+    g.fillEllipse(screen);
     {
-        const auto x = scope.getX() + scope.getWidth() * static_cast<float>(i) / 4.0f;
-        g.drawVerticalLine(juce::roundToInt(x), scope.getY() + 2.0f, scope.getBottom() - 2.0f);
+        juce::Graphics::ScopedSaveState state(g);
+        juce::Path clip;
+        clip.addEllipse(screen);
+        g.reduceClipRegion(clip);
+        g.setColour(phosphor.withAlpha(0.12f));
+        for (int i = 1; i < 6; ++i)
+        {
+            const auto x = screen.getX() + screen.getWidth() * static_cast<float>(i) / 6.0f;
+            const auto y = screen.getY() + screen.getHeight() * static_cast<float>(i) / 6.0f;
+            g.drawVerticalLine(juce::roundToInt(x), screen.getY(), screen.getBottom());
+            g.drawHorizontalLine(juce::roundToInt(y), screen.getX(), screen.getRight());
+        }
+        const auto traceArea = screen.reduced(20.0f, 30.0f);
+        trace.draw(g, "wave" + juce::String(waveform), traceArea, phosphor.withMultipliedAlpha(running ? 1.0f : 0.3f), 3.0f,
+                   running ? 1.0f : 0.0f,
+                   [&](juce::Graphics& lg)
+                   {
+                       auto path = twoCycles(waveform);
+                       path.applyTransform(path.getTransformToScaleToFit(traceArea.withZeroOrigin(), false));
+                       lg.strokePath(path, juce::PathStrokeType(1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                   });
+        juce::ColourGradient reflection(juce::Colours::white.withAlpha(0.10f), screen.getX(), screen.getY(),
+                                        juce::Colours::transparentWhite, screen.getCentreX(), screen.getCentreY(), false);
+        g.setGradientFill(reflection);
+        g.fillEllipse(screen);
     }
-    for (int i = 1; i < 4; ++i)
-    {
-        const auto y = scope.getY() + scope.getHeight() * static_cast<float>(i) / 4.0f;
-        g.drawHorizontalLine(juce::roundToInt(y), scope.getX() + 2.0f, scope.getRight() - 2.0f);
-    }
-    const auto traceArea = scope.reduced(9.0f, 16.0f);
-    trace.draw(g, "wave" + juce::String(waveform), traceArea, neon.withMultipliedAlpha(running ? 1.0f : 0.3f), 2.5f,
-               running ? 0.9f : 0.0f,
-               [&](juce::Graphics& lg)
-               {
-                   auto path = twoCycles(waveform);
-                   path.applyTransform(path.getTransformToScaleToFit(traceArea.withZeroOrigin(), false));
-                   lg.strokePath(path, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-               });
 }
 
 //==============================================================================
@@ -354,11 +359,25 @@ HdnRingmodAudioProcessorEditor::HdnRingmodAudioProcessorEditor(HdnRingmodAudioPr
 {
     setLookAndFeel(&lookAndFeel);
     setOpaque(true);
+    faceplate.setShowsScrews(false);
 
-    pitchDisplay.setTheme(RingmodTheme::inputDisplayTheme());
+    pitchDisplay.setTheme(theme);
     carrierDisplay.setTheme(theme);
     addAndMakeVisible(pitchDisplay);
     addAndMakeVisible(carrierDisplay);
+
+    affine::NeedleMeter::Scale confidence;
+    confidence.toPosition = [](float value) { return value; };
+    confidence.majors = { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f };
+    confidence.minors = { 0.125f, 0.375f, 0.625f, 0.875f };
+    confidence.format = [](float value) { return whole(value * 100.0); };
+    confidence.unit = "%";
+    confidence.caption = "Confidence";
+    confidenceMeter.setTheme(theme);
+    confidenceMeter.setScale(confidence);
+    confidenceMeter.setBallistics(4.0f, 0.8f);
+    confidenceMeter.setTitle("Confidence");
+    addAndMakeVisible(confidenceMeter);
 
     const auto percent = [](double value) { return whole(value); };
     smoothingKnob.setScale({ 0, 25, 50, 75, 100 }, percent);
@@ -382,11 +401,11 @@ HdnRingmodAudioProcessorEditor::HdnRingmodAudioProcessorEditor(HdnRingmodAudioPr
 
     modeKeys.onChange = [this](int) { updateModePresentation(); };
     modeKeys.setLegends({ "Track", "Manual" });
-    modeKeys.setKeySize(46.0f, 28.0f);
+    modeKeys.setKeySize(52.0f, 30.0f);
     waveformKeys.setLegends({ "Sine", "Tri", "Square", "Saw" });
     waveformKeys.setGlyphs({ affine::glyphs::sine(), affine::glyphs::triangle(),
                              affine::glyphs::square(), affine::glyphs::saw() });
-    waveformKeys.setKeySize(40.0f, 30.0f);
+    waveformKeys.setKeySize(44.0f, 34.0f);
     waveformKeys.setColumns(2);
 
     int order = 1;
@@ -404,8 +423,12 @@ HdnRingmodAudioProcessorEditor::HdnRingmodAudioProcessorEditor(HdnRingmodAudioPr
 
     for (auto* knob : { &smoothingKnob, &sensitivityKnob, &rateMultKnob, &manualRateKnob, &mixKnob })
         knob->setTheme(theme);
-    modeKeys.setTheme(theme);
-    waveformKeys.setTheme(theme);
+    for (auto* keys : { &modeKeys, &waveformKeys })
+    {
+        keys->setTheme(theme);
+        keys->setStyle(affine::KeyButton::Style::pianoKey);
+        keys->setKeyColour(juce::Colour(0xffece5d2));
+    }
 
     lastBlockCount = processorRef.processedBlocks.load(std::memory_order_acquire);
     lastBlockMs = juce::Time::getMillisecondCounterHiRes() - 1000.0;
@@ -425,42 +448,50 @@ HdnRingmodAudioProcessorEditor::~HdnRingmodAudioProcessorEditor()
 void HdnRingmodAudioProcessorEditor::paint(juce::Graphics& graphics)
 {
     faceplate.paint(graphics, getLocalBounds(), theme, [this](juce::Graphics& plate) { print(plate); });
+    affine::render::jewel(graphics, lockLamp, 10.0f, lockGreen, lockLit ? 1.0f : 0.0f);
 }
 
 void HdnRingmodAudioProcessorEditor::print(juce::Graphics& g)
 {
     using namespace affine::silkscreen;
     const auto& palette = theme.palette;
+    const auto w = static_cast<float>(width), h = static_cast<float>(height);
 
-    wordmark(g, "Ring Modulator", "HDN  /  Pitch-tracking carrier", { 40.0f, 26.0f }, palette);
-    legend(g, "Source", modeArea.toFloat().withWidth(76.0f).withX(static_cast<float>(modeArea.getX()) - 80.0f)
-                                 .withHeight(30.0f).translated(0.0f, 4.0f),
+    affine::render::rackEar(g, { 0.0f, 0.0f, earWidth, h }, true);
+    affine::render::rackEar(g, { w - earWidth, 0.0f, earWidth, h }, false);
+    affine::render::nameplate(g, nameplateArea, "RING MODULATOR", affine::fonts::label(24.0f, 0.36f));
+    g.setColour(palette.silkscreenDim);
+    g.setFont(affine::fonts::label(12.0f, 0.24f));
+    g.drawText("HDN  /  PITCH-TRACKING CARRIER", juce::Rectangle<float>(nameplateArea.getX() + 1.0f, nameplateArea.getBottom() + 6.0f, 320.0f, 14.0f),
+               juce::Justification::centredLeft, false);
+    legend(g, "Source", modeArea.toFloat().withWidth(70.0f).withX(static_cast<float>(modeArea.getX()) - 76.0f)
+                                 .withHeight(32.0f).translated(0.0f, 2.0f),
            palette, juce::Justification::centredRight, true);
-    groove(g, 32.0f, static_cast<float>(width) - 32.0f, 94.0f);
+    groove(g, earWidth + 12.0f, w - earWidth - 12.0f, 100.0f);
 
-    legend(g, "Input pitch", inputArea.toFloat().withHeight(14.0f).translated(0.0f, -18.0f), palette);
-    legend(g, "Carrier frequency", carrierArea.toFloat().withHeight(14.0f).translated(0.0f, -18.0f), palette);
-
+    legend(g, "Input pitch", inputArea.toFloat().withHeight(14.0f).translated(0.0f, -20.0f), palette);
+    legend(g, "Carrier frequency", carrierArea.toFloat().withHeight(14.0f).translated(0.0f, -20.0f), palette);
     g.setColour(palette.silkscreen);
+    g.setFont(affine::fonts::label(11.5f, 0.24f));
+    g.drawText("LOCK", juce::Rectangle<float>(lockLamp.x + 14.0f, lockLamp.y - 7.0f, 60.0f, 14.0f), juce::Justification::centredLeft, false);
     g.setFont(affine::fonts::wordmark(22.0f, 0.0f));
     g.drawText(juce::String(juce::CharPointer_UTF8("\xc3\x97")),
-               juce::Rectangle<float>(static_cast<float>(inputArea.getRight()), 164.0f,
-                                      static_cast<float>(carrierArea.getX() - inputArea.getRight()), 26.0f),
-               juce::Justification::centred, false);
+               juce::Rectangle<float>(450.0f, 194.0f, 30.0f, 26.0f), juce::Justification::centred, false);
 
     frame(g, trackingFrame, "Tracking", palette);
     frame(g, carrierFrame, "Carrier", palette);
     frame(g, outputFrame, "Output", palette);
-    legend(g, "Waveform", waveformArea.toFloat().withHeight(14.0f).translated(0.0f, -16.0f), palette,
+    legend(g, "Waveform", waveformArea.toFloat().withHeight(14.0f).translated(0.0f, -18.0f), palette,
            juce::Justification::centred, true);
 
-    makersMark(g, { 34.0f, static_cast<float>(height) - 10.0f }, palette);
+    makersMark(g, { earWidth + 24.0f, h - 12.0f }, palette);
 }
 
 void HdnRingmodAudioProcessorEditor::resized()
 {
     modeKeys.setBounds(modeArea);
     pitchDisplay.setBounds(inputArea);
+    confidenceMeter.setBounds(confidenceArea);
     carrierDisplay.setBounds(carrierArea);
 
     const auto place = [](affine::Knob& knob, int centreX)
@@ -468,12 +499,12 @@ void HdnRingmodAudioProcessorEditor::resized()
         knob.setBounds(knob.getBoundsForCentre({ centreX, knobCentreY }));
     };
 
-    place(smoothingKnob, 92);
-    place(sensitivityKnob, 212);
-    place(rateMultKnob, 358);
-    place(manualRateKnob, 500);
+    place(smoothingKnob, 122);
+    place(sensitivityKnob, 234);
+    place(rateMultKnob, 386);
+    place(manualRateKnob, 516);
     waveformKeys.setBounds(waveformArea);
-    place(mixKnob, 794);
+    place(mixKnob, 810);
 }
 
 int HdnRingmodAudioProcessorEditor::getControlParameterIndex(juce::Component& component)
@@ -517,11 +548,33 @@ void HdnRingmodAudioProcessorEditor::timerCallback()
     const auto pitchTracking = modeKeys.getSelectedIndex() != 1;
     const auto manualRate = static_cast<float>(manualRateKnob.getValue());
     const auto carrierHz = processorRef.currentCarrierHz.load(std::memory_order_relaxed);
+    const auto confidence = processorRef.currentConfidence.load(std::memory_order_relaxed);
     const auto sensitivity = processorRef.apvts.getRawParameterValue(ParameterIDs::sensitivity)->load() / 100.0f;
+    const auto locked = live && pitchTracking && carrierHz > 0.0f;
 
-    pitchDisplay.setState(processorRef.currentPitchHz.load(std::memory_order_relaxed),
-                          processorRef.currentConfidence.load(std::memory_order_relaxed),
-                          pitchTracking, manualRate, sensitivity, live && pitchTracking && carrierHz > 0.0f, live);
+    pitchDisplay.setState(processorRef.currentPitchHz.load(std::memory_order_relaxed), confidence,
+                          pitchTracking, manualRate, sensitivity, locked, live);
     carrierDisplay.setState(pitchTracking ? (live ? carrierHz : 0.0f) : manualRate, waveformKeys.getSelectedIndex());
+
+    // The green zone of the confidence meter starts at the Sensitivity threshold.
+    if (!juce::approximatelyEqual(shownThreshold, sensitivity))
+    {
+        shownThreshold = sensitivity;
+        affine::NeedleMeter::Face face;
+        face.backlight = juce::Colour(0xfff2d48a);
+        face.ink = juce::Colour(0xff20190f);
+        face.zone = juce::Colour(0xff2f9e4f);
+        face.zoneFrom = sensitivity;
+        face.mirror = false;
+        face.bezel = affine::NeedleMeter::Face::Bezel::chrome;
+        confidenceMeter.setFace(face);
+    }
+    confidenceMeter.setReading(confidence, live && pitchTracking);
+
+    if (locked != lockLit)
+    {
+        lockLit = locked;
+        repaint(juce::Rectangle<int>(40, 40).withCentre(lockLamp.toInt()));
+    }
     updateModePresentation();
 }
