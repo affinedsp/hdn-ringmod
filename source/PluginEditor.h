@@ -5,9 +5,8 @@
 
 namespace RingmodTheme
 {
-// Petrol anodising, neon-orange Nixie carrier and a cyan vacuum-fluorescent input display.
+// Hi-Fi finish: a black glass front, a blue tuning dial and meters, green legends and silver knobs.
 affine::Theme theme();
-affine::Theme inputDisplayTheme();
 }
 
 class PitchDisplay final : public juce::Component,
@@ -23,10 +22,12 @@ public:
     std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
 
     juce::String getAccessibleValueText() const;
+    bool hasPitch() const;
+    /** Deviation of the detected pitch from the nearest equal-tempered note, in cents. */
+    float getCents() const;
 
 private:
     class ValueInterface;
-    bool hasPitch() const;
 
     affine::Theme theme;
     affine::render::GlowText noteGlow, detailGlow;
@@ -52,14 +53,15 @@ public:
     std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
 
     static juce::String formatFrequency(float hz);
-    const affine::NixieDisplay& getCounter() const { return counter; }
+    juce::String getReadoutText() const { return formatFrequency(carrier); }
+    affine::TuningDial& getDial() { return dial; }
 
 private:
     class ValueInterface;
 
     affine::Theme theme;
-    affine::NixieDisplay counter;
-    affine::render::GlowLayer trace, unit;
+    affine::TuningDial dial;
+    affine::render::GlowText readout, unit;
     float carrier = 0.0f;
     int waveform = 0;
 };
@@ -75,8 +77,8 @@ public:
     void resized() override;
     int getControlParameterIndex(juce::Component&) override;
 
-    static constexpr int width = 900;
-    static constexpr int height = 490;
+    static constexpr int width = 960;
+    static constexpr int height = 560;
 
 private:
     void timerCallback() override;
@@ -89,6 +91,7 @@ private:
     affine::Faceplate faceplate;
     PitchDisplay pitchDisplay;
     CarrierDisplay carrierDisplay;
+    affine::NeedleMeter signalMeter, tuningMeter;
 
     affine::Knob smoothingKnob, sensitivityKnob, rateMultKnob, manualRateKnob, mixKnob;
     affine::SelectorKeys modeKeys, waveformKeys;
@@ -96,6 +99,7 @@ private:
     uint32_t lastBlockCount = 0;
     double lastBlockMs = 0.0;
     int lastModeIndex = -1;
+    float shownThreshold = -1.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HdnRingmodAudioProcessorEditor)
 };
