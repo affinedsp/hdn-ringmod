@@ -5,9 +5,8 @@
 
 namespace RingmodTheme
 {
-// Petrol anodising, neon-orange Nixie carrier and a cyan vacuum-fluorescent input display.
+// Stealth finish: matte black powder coat, white LED rings and soft keys, and one amber screen.
 affine::Theme theme();
-affine::Theme inputDisplayTheme();
 }
 
 class PitchDisplay final : public juce::Component,
@@ -23,13 +22,17 @@ public:
     std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
 
     juce::String getAccessibleValueText() const;
+    bool hasPitch() const;
+    /** Deviation of the detected pitch from the nearest equal-tempered note, in cents. */
+    float getCents() const;
 
 private:
     class ValueInterface;
-    bool hasPitch() const;
+    void paintTuner(juce::Graphics&, juce::Rectangle<float>);
+    void paintSignal(juce::Graphics&, juce::Rectangle<float>);
 
     affine::Theme theme;
-    affine::render::GlowText noteGlow, detailGlow;
+    affine::render::GlowText noteGlow;
     float pitchHz = 0.0f;
     float confidenceValue = 0.0f;
     float manualRate = 440.0f;
@@ -47,21 +50,24 @@ public:
 
     void setTheme(const affine::Theme&);
     void setState(float carrierHz, int waveformIndex);
+    /** The source mode and the input pitch the carrier follows (0 without one); they set the scope's time window. */
+    void setReference(bool pitchTracking, float inputPitchHz);
     void paint(juce::Graphics&) override;
-    void resized() override;
     std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
 
     static juce::String formatFrequency(float hz);
-    const affine::NixieDisplay& getCounter() const { return counter; }
+    juce::String getReadoutText() const { return formatFrequency(carrier); }
 
 private:
     class ValueInterface;
+    void paintScope(juce::Graphics&, juce::Rectangle<float>);
 
     affine::Theme theme;
-    affine::NixieDisplay counter;
-    affine::render::GlowLayer trace, unit;
+    affine::render::GlowText readout;
     float carrier = 0.0f;
+    float reference = 0.0f;
     int waveform = 0;
+    bool tracking = true;
 };
 
 class HdnRingmodAudioProcessorEditor : public juce::AudioProcessorEditor,
@@ -75,8 +81,8 @@ public:
     void resized() override;
     int getControlParameterIndex(juce::Component&) override;
 
-    static constexpr int width = 900;
-    static constexpr int height = 490;
+    static constexpr int width = 960;
+    static constexpr int height = 560;
 
 private:
     void timerCallback() override;
