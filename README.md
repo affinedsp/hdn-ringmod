@@ -5,7 +5,7 @@
 A pitch-tracking ring modulator audio plugin (VST3/AU/Standalone) built with JUCE 8.
 
 <p align="center">
-  <img src="img/hdn-ring-modulator-ui.png" alt="HDN Ring Modulator tracking an A2 at 110 Hz: cyan input-pitch display locked, Nixie counter showing a 220 Hz carrier at a 2x rate multiplier, and the Tracking, Carrier and Output controls" width="900">
+  <img src="img/hdn-ring-modulator-ui.png" alt="HDN Ring Modulator in the Stealth finish tracking an A2 at 110 Hz: an amber screen with the input note, tuning and signal bars, four cycles of the sine carrier across two input periods, and a 220.0 Hz carrier readout at a 2.00x ratio, above knobs with white LED rings and soft keys" width="900">
 </p>
 
 ## What Is This?
@@ -20,11 +20,12 @@ Four oscillator waveforms are available (sine, triangle, square, saw), each prod
 
 ## Interface
 
-The panel reads left to right in signal order: what the tracker hears, the carrier it drives, and the controls for each stage.
+The screen reads left to right in signal order: what the tracker hears, the carrier it drives, and its frequency. The controls for each stage sit below it.
 
-- **Input pitch** (cyan display): the detected note and frequency. **LOCK** lights only while the carrier is actually following the input. The confidence bar shows how certain the detector is, and the marker under it is the **Sensitivity** threshold a detection must clear. The display reads *LISTENING* while the tracker searches, *NO AUDIO* when the host is not processing, and *OFF* in Manual mode.
-- **Carrier frequency** (Nixie counter): the frequency the carrier oscillator is running at, published by the processor rather than estimated in the UI, with a trace of the selected waveform. The tubes go dark while the effect stays dry.
-- **Source** keys switch between Pitch Track and Manual. Controls that do not act in the current source keep working but show it: their activity lamp goes out and their readout dims.
+- **Input**: the detected note and frequency, a tuning bar showing how far the input is from the nearest note in cents, and the **Signal** bar showing how certain the detector is, with the **Sensitivity** mark a detection must reach. **LOCK** lights only while the carrier is actually following the input. The input reads *LISTENING* while the tracker searches, *NO AUDIO* when the host is not processing, and *OFF* in Manual mode.
+- **Wave**: the selected waveform drawn at the frequency the carrier is running at. While tracking, the window spans two periods of the input, so the Rate Multiplier shows as the number of cycles; in Manual mode it spans 10 ms. It stays flat while the effect is dry.
+- **Carrier**: the frequency the carrier oscillator is running at, published by the processor rather than estimated in the UI, as a readout and a note, with its ratio to the input pitch. The readouts go dark while the effect stays dry.
+- **Source** keys switch between Pitch Track and Manual. Controls that do not act in the current source keep working but show it: their activity lamp goes out and their LED ring and readout dim.
 - **Waveform** keys select the carrier shape.
 
 Knobs have calibrated scales. Drag anywhere on a knob (up or right increases, Shift for fine), double-click or press Return to type an exact value, Alt/Option-click or Home to reset, and right-click for the parameter menu. The interface follows the shared [Affine design language](libs/affine-ui/DESIGN_LANGUAGE.md).
