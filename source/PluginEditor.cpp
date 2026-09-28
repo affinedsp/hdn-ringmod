@@ -15,25 +15,9 @@ const juce::Rectangle<int> carrierArea { 333, 113, 568, 185 };
 const juce::Rectangle<int> waveformArea { 644, 370, 128, 152 };
 constexpr int knobCentreY = 452;
 
-const juce::Colour screenAmber { 0xffffb23f }, legendWhite { 0xffd8dbdf };
-
 juce::String whole(double value)
 {
     return juce::String(juce::roundToInt(value));
-}
-
-juce::Colour lit(float level = 1.0f)
-{
-    return screenAmber.interpolatedWith(juce::Colours::white, 0.2f).withMultipliedAlpha(level);
-}
-
-// A caption on the screen, in the screen's colour.
-void caption(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area,
-             juce::Justification justification = juce::Justification::centredLeft, float alpha = 0.85f)
-{
-    g.setColour(screenAmber.withAlpha(alpha));
-    g.setFont(affine::fonts::label(12.0f, 0.22f));
-    g.drawText(text, area, justification, false);
 }
 
 // One cycle of the carrier's waveform at `phase` in [0, 1), as the oscillator computes it.
@@ -47,48 +31,12 @@ float carrierShape(int waveform, double phase)
         default: return static_cast<float>(std::sin(juce::MathConstants<double>::twoPi * phase));
     }
 }
-
-// A group title printed on the plate, with a hairline running to its right.
-void groupTitle(juce::Graphics& g, const juce::String& title, juce::Rectangle<float> rule, const affine::Palette& palette)
-{
-    const auto font = affine::fonts::label(11.5f, 0.26f);
-    juce::GlyphArrangement glyphs;
-    glyphs.addLineOfText(font, title, 0.0f, 0.0f);
-    const auto textWidth = glyphs.getBoundingBox(0, -1, true).getWidth();
-    g.setColour(palette.silkscreenDim);
-    g.setFont(font);
-    g.drawText(title, rule.withWidth(textWidth + 8.0f).withHeight(14.0f).translated(0.0f, -7.0f),
-               juce::Justification::centredLeft, false);
-    g.setColour(juce::Colours::white.withAlpha(0.08f));
-    g.fillRect(rule.withTrimmedLeft(textWidth + 14.0f).withHeight(1.0f));
-}
 }
 
 affine::Theme RingmodTheme::theme()
 {
     affine::Theme t;
-    t.panel.texture = affine::PanelFinish::Texture::powder;
-    t.panel.base = juce::Colour(0xff17181b);
-    t.panel.grain = 0.10f;
-    t.panel.mottle = 0.03f;
-    t.panel.sheen = 0.5f;
-
-    using Material = affine::KnobFinish::Material;
-    t.knob.cap = juce::Colour(0xff34373c);
-    t.knob.body = juce::Colour(0xff141518);
-    t.knob.capMaterial = Material::spunAluminium;
-    t.knob.bodyMaterial = Material::anodised;
-    t.knob.pointer = juce::Colour(0xfff2f4f7);
-    t.knob.index = juce::Colour(0xfff2f4f7);
-
-    auto& p = t.palette;
-    p.silkscreen = legendWhite;
-    p.silkscreenDim = juce::Colour(0xff8a9097);
-    p.accent = juce::Colour(0xffeef4ff);
-    p.attention = juce::Colour(0xffffb238);
-    p.danger = juce::Colour(0xffff4a3d);
-    p.glass = juce::Colour(0xff050607);
-    p.glassTint = juce::Colour(0xff0c0f12);
+    t.palette.screen = juce::Colour(0xffffb23f);
     return t;
 }
 
@@ -194,17 +142,18 @@ std::unique_ptr<juce::AccessibilityHandler> PitchDisplay::createAccessibilityHan
 
 void PitchDisplay::paint(juce::Graphics& g)
 {
+    const auto screenColour = theme.palette.screen;
     auto area = getLocalBounds().toFloat();
     auto header = area.removeFromTop(15.0f);
-    caption(g, "INPUT", header);
+    affine::screen::caption(g, "INPUT", header, screenColour);
 
     // Lock lamp: lit only while the tracked carrier is actually running.
     const auto lamp = juce::Point<float>(header.getRight() - 40.0f, header.getCentreY());
     if (locked)
-        affine::render::halo(g, lamp, 9.0f, screenAmber, 0.6f);
-    g.setColour(locked ? lit() : screenAmber.withAlpha(0.18f));
+        affine::render::halo(g, lamp, 9.0f, screenColour, 0.6f);
+    g.setColour(locked ? affine::screen::lit(screenColour) : screenColour.withAlpha(0.18f));
     g.fillEllipse(juce::Rectangle<float>(6.0f, 6.0f).withCentre(lamp));
-    caption(g, "LOCK", header.withLeft(lamp.x + 8.0f), juce::Justification::centredLeft, locked ? 0.95f : 0.3f);
+    affine::screen::caption(g, "LOCK", header.withLeft(lamp.x + 8.0f), screenColour, juce::Justification::centredLeft, locked ? 0.95f : 0.3f);
 
     juce::String note = "--", detail, cents;
     if (!trackingMode)
@@ -230,11 +179,11 @@ void PitchDisplay::paint(juce::Graphics& g)
 
     const auto noteLevel = hasPitch() ? (locked ? 1.0f : 0.55f) : 0.3f;
     noteGlow.draw(g, note, affine::fonts::readout(54.0f), area.removeFromTop(56.0f), juce::Justification::centredLeft,
-                  lit(noteLevel), 4.0f, 0.4f + 0.5f * noteLevel);
+                  affine::screen::lit(screenColour, noteLevel), 4.0f, 0.4f + 0.5f * noteLevel);
 
     auto details = area.removeFromTop(16.0f);
     g.setFont(affine::fonts::readout(15.0f, 0.04f));
-    g.setColour(hasPitch() ? lit(0.9f) : screenAmber.withAlpha(0.5f));
+    g.setColour(hasPitch() ? affine::screen::lit(screenColour, 0.9f) : screenColour.withAlpha(0.5f));
     g.drawText(detail, details, juce::Justification::centredLeft, false);
     g.drawText(cents, details, juce::Justification::centredRight, false);
 
@@ -246,6 +195,7 @@ void PitchDisplay::paint(juce::Graphics& g)
 
 void PitchDisplay::paintTuner(juce::Graphics& g, juce::Rectangle<float> area)
 {
+    const auto screenColour = theme.palette.screen;
     // Cents from the nearest note, -50 to +50, centred.
     const auto line = area.removeFromTop(14.0f);
     const auto y = line.getCentreY();
@@ -253,11 +203,11 @@ void PitchDisplay::paintTuner(juce::Graphics& g, juce::Rectangle<float> area)
     for (int c = -50; c <= 50; c += 10)
     {
         const auto major = c % 50 == 0;
-        g.setColour(screenAmber.withAlpha(major ? 0.55f : 0.25f));
+        g.setColour(screenColour.withAlpha(major ? 0.55f : 0.25f));
         const auto half = major ? 6.0f : 3.0f;
         g.fillRect(xFor(static_cast<float>(c)) - 0.5f, y - half, 1.0f, half * 2.0f);
     }
-    g.setColour(screenAmber.withAlpha(0.18f));
+    g.setColour(screenColour.withAlpha(0.18f));
     g.fillRect(line.getX(), y - 0.5f, line.getWidth(), 1.0f);
 
     if (hasPitch())
@@ -265,15 +215,15 @@ void PitchDisplay::paintTuner(juce::Graphics& g, juce::Rectangle<float> area)
         const auto x = xFor(getCents());
         const auto centre = xFor(0.0f);
         const auto level = locked ? 1.0f : 0.55f;
-        g.setColour(screenAmber.withAlpha(0.45f * level));
+        g.setColour(screenColour.withAlpha(0.45f * level));
         g.fillRect(juce::jmin(x, centre), y - 1.5f, std::abs(x - centre), 3.0f);
-        affine::render::halo(g, { x, y }, 10.0f, screenAmber, 0.5f * level);
-        g.setColour(lit(level));
+        affine::render::halo(g, { x, y }, 10.0f, screenColour, 0.5f * level);
+        g.setColour(affine::screen::lit(screenColour, level));
         g.fillRoundedRectangle(juce::Rectangle<float>(3.0f, 16.0f).withCentre({ x, y }), 1.5f);
     }
 
     g.setFont(affine::fonts::label(9.5f, 0.04f));
-    g.setColour(screenAmber.withAlpha(0.45f));
+    g.setColour(screenColour.withAlpha(0.45f));
     g.drawText("-50", area.withWidth(30.0f), juce::Justification::centredLeft, false);
     g.drawText("TUNING", area, juce::Justification::centred, false);
     g.drawText("+50", area.withLeft(area.getRight() - 30.0f), juce::Justification::centredRight, false);
@@ -281,33 +231,30 @@ void PitchDisplay::paintTuner(juce::Graphics& g, juce::Rectangle<float> area)
 
 void PitchDisplay::paintSignal(juce::Graphics& g, juce::Rectangle<float> area)
 {
+    const auto screenColour = theme.palette.screen;
     // Detection confidence against the Sensitivity threshold that gates the carrier.
     const auto active = trackingMode && live;
     auto header = area.removeFromTop(15.0f);
-    caption(g, "SIGNAL", header, juce::Justification::centredLeft, trackingMode ? 0.85f : 0.4f);
+    affine::screen::caption(g, "SIGNAL", header, screenColour, juce::Justification::centredLeft, trackingMode ? 0.85f : 0.4f);
     g.setFont(affine::fonts::readout(14.0f));
-    g.setColour(active ? lit(0.9f) : screenAmber.withAlpha(0.35f));
+    g.setColour(active ? affine::screen::lit(screenColour, 0.9f) : screenColour.withAlpha(0.35f));
     g.drawText(active ? whole(confidenceValue * 100.0f) + " %" : juce::String("--"), header,
                juce::Justification::centredRight, false);
 
     area.removeFromTop(6.0f);
     const auto bar = area.removeFromTop(10.0f);
-    constexpr int segments = 32;
-    const auto pitch = bar.getWidth() / static_cast<float>(segments);
-    for (int i = 0; i < segments; ++i)
+    affine::screen::segments(g, bar, 32, active ? confidenceValue : -1.0f, [&](float position, bool on)
     {
-        const auto at = (static_cast<float>(i) + 0.5f) / static_cast<float>(segments);
-        const auto on = active && at <= confidenceValue;
-        const auto accepted = at >= threshold;
-        g.setColour(on ? (accepted ? lit() : screenAmber.withAlpha(0.5f)) : screenAmber.withAlpha(accepted ? 0.14f : 0.08f));
-        g.fillRect(bar.getX() + static_cast<float>(i) * pitch, bar.getY(), pitch - 1.0f, bar.getHeight());
-    }
+        const auto accepted = position >= threshold;
+        return on ? (accepted ? affine::screen::lit(screenColour) : screenColour.withAlpha(0.5f))
+                  : screenColour.withAlpha(accepted ? 0.14f : 0.08f);
+    });
 
     const auto mark = bar.getX() + bar.getWidth() * juce::jlimit(0.0f, 1.0f, threshold);
     g.setColour(juce::Colours::white.withAlpha(trackingMode ? 0.85f : 0.3f));
     g.fillRect(mark - 1.0f, bar.getY() - 4.0f, 2.0f, bar.getHeight() + 8.0f);
     g.setFont(affine::fonts::label(9.5f, 0.12f));
-    g.setColour(screenAmber.withAlpha(0.55f));
+    g.setColour(screenColour.withAlpha(0.55f));
     g.drawText("SENS", juce::Rectangle<float>(40.0f, 12.0f).withCentre({ juce::jlimit(bar.getX() + 20.0f, bar.getRight() - 20.0f, mark),
                                                                           bar.getBottom() + 9.0f }),
                juce::Justification::centred, false);
@@ -384,27 +331,28 @@ std::unique_ptr<juce::AccessibilityHandler> CarrierDisplay::createAccessibilityH
 
 void CarrierDisplay::paint(juce::Graphics& g)
 {
+    const auto screenColour = theme.palette.screen;
     auto area = getLocalBounds().toFloat();
     paintScope(g, area.removeFromLeft(320.0f));
     area.removeFromLeft(12.0f);
-    g.setColour(screenAmber.withAlpha(0.10f));
+    g.setColour(screenColour.withAlpha(0.10f));
     g.fillRect(area.getX() - 0.5f, area.getY() + 4.0f, 1.0f, area.getHeight() - 8.0f);
     area.removeFromLeft(12.0f);
 
     const auto running = carrier > 0.0f;
     static const char* names[] = { "SINE", "TRIANGLE", "SQUARE", "SAW" };
     auto header = area.removeFromTop(15.0f);
-    caption(g, "CARRIER", header);
-    caption(g, names[juce::jlimit(0, 3, waveform)], header, juce::Justification::centredRight, 0.6f);
+    affine::screen::caption(g, "CARRIER", header, screenColour);
+    affine::screen::caption(g, names[juce::jlimit(0, 3, waveform)], header, screenColour, juce::Justification::centredRight, 0.6f);
 
     area.removeFromTop(8.0f);
     readout.draw(g, running ? formatFrequency(carrier) : juce::String("----"), affine::fonts::readout(44.0f),
-                 area.removeFromTop(52.0f), juce::Justification::centredRight, running ? lit() : screenAmber.withAlpha(0.3f),
+                 area.removeFromTop(52.0f), juce::Justification::centredRight, running ? affine::screen::lit(screenColour) : screenColour.withAlpha(0.3f),
                  4.0f, running ? 0.9f : 0.3f);
-    caption(g, "HZ", area.removeFromTop(14.0f), juce::Justification::centredRight, running ? 0.85f : 0.4f);
+    affine::screen::caption(g, "HZ", area.removeFromTop(14.0f), screenColour, juce::Justification::centredRight, running ? 0.85f : 0.4f);
 
     area.removeFromTop(16.0f);
-    g.setColour(screenAmber.withAlpha(0.10f));
+    g.setColour(screenColour.withAlpha(0.10f));
     g.fillRect(area.getX(), area.getY(), area.getWidth(), 1.0f);
     area.removeFromTop(10.0f);
 
@@ -412,9 +360,9 @@ void CarrierDisplay::paint(juce::Graphics& g)
     auto row = [&](const juce::String& name, const juce::String& value)
     {
         auto line = area.removeFromTop(24.0f);
-        caption(g, name, line, juce::Justification::centredLeft, 0.6f);
+        affine::screen::caption(g, name, line, screenColour, juce::Justification::centredLeft, 0.6f);
         g.setFont(affine::fonts::readout(17.0f));
-        g.setColour(running ? lit(0.9f) : screenAmber.withAlpha(0.35f));
+        g.setColour(running ? affine::screen::lit(screenColour, 0.9f) : screenColour.withAlpha(0.35f));
         g.drawText(value, line, juce::Justification::centredRight, false);
     };
     row("NOTE", running ? juce::String(NoteNames::fromFrequency(carrier).c_str()) : juce::String("--"));
@@ -423,11 +371,12 @@ void CarrierDisplay::paint(juce::Graphics& g)
 
 void CarrierDisplay::paintScope(juce::Graphics& g, juce::Rectangle<float> area)
 {
+    const auto screenColour = theme.palette.screen;
     // While tracking, the window is two periods of the input; a fixed carrier gets 10 ms.
     const auto periods = tracking && (reference > 0.0f || carrier <= 0.0f);
     auto header = area.removeFromTop(15.0f);
-    caption(g, "WAVE", header);
-    caption(g, periods ? "TWO INPUT PERIODS" : "10 MS", header, juce::Justification::centredRight, 0.45f);
+    affine::screen::caption(g, "WAVE", header, screenColour);
+    affine::screen::caption(g, periods ? "TWO INPUT PERIODS" : "10 MS", header, screenColour, juce::Justification::centredRight, 0.45f);
 
     area.removeFromTop(12.0f);
     const auto axis = area.removeFromBottom(14.0f);
@@ -435,10 +384,10 @@ void CarrierDisplay::paintScope(juce::Graphics& g, juce::Rectangle<float> area)
     const auto mid = plot.getCentreY();
     const auto amplitude = plot.getHeight() * 0.42f;
 
-    g.setColour(screenAmber.withAlpha(0.07f));
+    g.setColour(screenColour.withAlpha(0.07f));
     g.fillRect(plot.getX(), mid - amplitude - 0.5f, plot.getWidth(), 1.0f);
     g.fillRect(plot.getX(), mid + amplitude - 0.5f, plot.getWidth(), 1.0f);
-    g.setColour(screenAmber.withAlpha(0.16f));
+    g.setColour(screenColour.withAlpha(0.16f));
     g.fillRect(plot.getX(), mid - 0.5f, plot.getWidth(), 1.0f);
 
     const auto divisions = periods ? 2 : 10;
@@ -446,13 +395,13 @@ void CarrierDisplay::paintScope(juce::Graphics& g, juce::Rectangle<float> area)
     {
         const auto x = plot.getX() + plot.getWidth() * static_cast<float>(i) / static_cast<float>(divisions);
         const auto strong = periods || i % 5 == 0;
-        g.setColour(screenAmber.withAlpha(strong ? 0.16f : 0.07f));
+        g.setColour(screenColour.withAlpha(strong ? 0.16f : 0.07f));
         for (auto y = plot.getY(); y < plot.getBottom(); y += 4.0f)
             g.fillRect(x - 0.5f, y, 1.0f, 1.5f);
         if (strong)
         {
             g.setFont(affine::fonts::label(9.5f, 0.04f));
-            g.setColour(screenAmber.withAlpha(0.45f));
+            g.setColour(screenColour.withAlpha(0.45f));
             const auto label = periods ? juce::String(i) : juce::String(i) + (i == divisions ? " MS" : "");
             const auto just = i == 0 ? juce::Justification::centredLeft
                             : i == divisions ? juce::Justification::centredRight : juce::Justification::centred;
@@ -465,7 +414,7 @@ void CarrierDisplay::paintScope(juce::Graphics& g, juce::Rectangle<float> area)
 
     if (carrier <= 0.0f)
     {
-        caption(g, "DRY", plot.withBottom(mid - 4.0f), juce::Justification::centredBottom, 0.35f);
+        affine::screen::caption(g, "DRY", plot.withBottom(mid - 4.0f), screenColour, juce::Justification::centredBottom, 0.35f);
         return;
     }
 
@@ -486,9 +435,9 @@ void CarrierDisplay::paintScope(juce::Graphics& g, juce::Rectangle<float> area)
     }
     g.saveState();
     g.reduceClipRegion(plot.expanded(0.0f, 6.0f).toNearestInt());
-    g.setColour(screenAmber.withAlpha(0.16f));
+    g.setColour(screenColour.withAlpha(0.16f));
     g.strokePath(wave, juce::PathStrokeType(5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    g.setColour(lit());
+    g.setColour(affine::screen::lit(screenColour));
     g.strokePath(wave, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     g.restoreState();
 }
@@ -510,7 +459,6 @@ HdnRingmodAudioProcessorEditor::HdnRingmodAudioProcessorEditor(HdnRingmodAudioPr
 {
     setLookAndFeel(&lookAndFeel);
     setOpaque(true);
-    faceplate.setShowsScrews(false);
 
     pitchDisplay.setTheme(theme);
     carrierDisplay.setTheme(theme);
@@ -560,17 +508,9 @@ HdnRingmodAudioProcessorEditor::HdnRingmodAudioProcessorEditor(HdnRingmodAudioPr
     }
 
     for (auto* knob : { &smoothingKnob, &sensitivityKnob, &rateMultKnob, &manualRateKnob, &mixKnob })
-    {
         knob->setTheme(theme);
-        knob->setLedRing(true);
-    }
     for (auto* keys : { &modeKeys, &waveformKeys })
-    {
         keys->setTheme(theme);
-        keys->setStyle(affine::KeyButton::Style::softKey);
-        for (int i = 0; i < keys->getNumKeys(); ++i)
-            keys->getKey(i)->setLampColour(theme.palette.accent);
-    }
 
     lastBlockCount = processorRef.processedBlocks.load(std::memory_order_acquire);
     lastBlockMs = juce::Time::getMillisecondCounterHiRes() - 1000.0;
@@ -597,25 +537,20 @@ void HdnRingmodAudioProcessorEditor::print(juce::Graphics& g)
     const auto& palette = theme.palette;
     const auto h = static_cast<float>(height);
 
-    g.setColour(palette.silkscreen);
-    g.setFont(affine::fonts::label(30.0f, 0.45f));
-    g.drawText("RING MODULATOR", juce::Rectangle<float>(38.0f, 22.0f, 560.0f, 36.0f), juce::Justification::centredLeft, false);
+    affine::silkscreen::wordmark(g, "Ring Modulator", "HDN  /  Pitch-tracking carrier", { 38.0f, 22.0f }, palette);
     g.setColour(palette.silkscreenDim);
-    g.setFont(affine::fonts::label(11.5f, 0.3f));
-    g.drawText("HDN  /  PITCH-TRACKING CARRIER", juce::Rectangle<float>(40.0f, 58.0f, 420.0f, 14.0f),
-               juce::Justification::centredLeft, false);
     g.setFont(affine::fonts::label(11.5f, 0.26f));
     g.drawText("SOURCE", modeArea.toFloat().withWidth(70.0f).withX(static_cast<float>(modeArea.getX()) - 78.0f).withHeight(36.0f),
                juce::Justification::centredRight, false);
 
     const auto glass = screenArea.toFloat().reduced(5.0f);
     affine::render::screenGlass(g, glass);
-    g.setColour(screenAmber.withAlpha(0.10f));
+    g.setColour(palette.screen.withAlpha(0.10f));
     g.fillRect(321.0f, static_cast<float>(inputArea.getY()) + 4.0f, 1.0f, static_cast<float>(inputArea.getHeight()) - 8.0f);
 
-    groupTitle(g, "TRACKING", { 36.0f, 344.0f, 272.0f, 1.0f }, palette);
-    groupTitle(g, "CARRIER", { 330.0f, 344.0f, 446.0f, 1.0f }, palette);
-    groupTitle(g, "OUTPUT", { 796.0f, 344.0f, 128.0f, 1.0f }, palette);
+    affine::silkscreen::section(g, "Tracking", { 36.0f, 344.0f, 272.0f, 1.0f }, palette);
+    affine::silkscreen::section(g, "Carrier", { 330.0f, 344.0f, 446.0f, 1.0f }, palette);
+    affine::silkscreen::section(g, "Output", { 796.0f, 344.0f, 128.0f, 1.0f }, palette);
 
     affine::silkscreen::makersMark(g, { 40.0f, h - 14.0f }, palette);
 }

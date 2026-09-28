@@ -100,9 +100,7 @@ V3 shadeMaterial (KnobFinish::Material material, juce::Colour colour, const Surf
     switch (material)
     {
         case KnobFinish::Material::spunAluminium:
-        case KnobFinish::Material::polishedAluminium:
         {
-            const auto polished = material == KnobFinish::Material::polishedAluminium;
             if (face)
             {
                 const V3 t { -std::sin (phi), std::cos (phi), 0.0f };
@@ -112,24 +110,15 @@ V3 shadeMaterial (KnobFinish::Material material, juce::Colour colour, const Surf
                 const auto grooves = 0.72f + 0.56f * fbm (r * 310.0f, 3.7f, 3, 11);
                 const auto sheen = std::pow (kajiyaKay, 64.0f) * grooves;
                 const auto broad = std::pow (kajiyaKay, 9.0f) * 0.22f;
-                const auto mirror = polished ? 0.85f : 0.42f;
-                const auto lit = base * (0.05f + 0.28f * key + fill) + base * (environment (reflected) * mirror)
-                               + base * ((sheen * (polished ? 0.55f : 0.95f) + broad) * grooves);
+                const auto lit = base * (0.05f + 0.28f * key + fill) + base * (environment (reflected) * 0.42f)
+                               + base * ((sheen * 0.95f + broad) * grooves);
                 // A soft hot spot where the softbox reflects near the centre.
-                const auto hot = std::exp (-std::pow ((r - 0.18f) / 0.30f, 2.0f)) * (polished ? 0.09f : 0.05f);
+                const auto hot = std::exp (-std::pow ((r - 0.18f) / 0.30f, 2.0f)) * 0.05f;
                 return (lit + white * hot) * surface.occlusion;
             }
-            const auto bright = base * (0.10f + 0.30f * key + fill) + base * (environment (reflected) * (polished ? 1.10f : 0.95f))
+            const auto bright = base * (0.10f + 0.30f * key + fill) + base * (environment (reflected) * 0.95f)
                               + white * (std::pow (specular, 90.0f) * 1.6f);
             return bright * surface.occlusion;
-        }
-        case KnobFinish::Material::glossPlastic:
-        {
-            // A dyed moulding under a clear gloss: dark diffuse body, sharp softbox reflections.
-            const auto fresnel = 0.04f + 0.96f * std::pow (1.0f - saturate (n.z), 5.0f);
-            const auto reflection = environment (reflected) * (0.10f + 1.6f * fresnel);
-            const auto highlight = std::pow (specular, 180.0f) * 1.5f + std::pow (specular, 36.0f) * 0.05f;
-            return (base * (0.25f + 1.5f * key + fill) + white * (reflection + highlight)) * surface.occlusion;
         }
         case KnobFinish::Material::anodised:
         default:

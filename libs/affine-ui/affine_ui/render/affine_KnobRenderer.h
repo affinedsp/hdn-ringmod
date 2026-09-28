@@ -7,16 +7,14 @@ struct KnobFinish
 {
     enum class Material
     {
-        spunAluminium,     // lathe-turned metal with an anisotropic highlight
-        anodised,          // satin dyed metal
-        glossPlastic,      // moulded phenolic or bakelite with a clear gloss
-        polishedAluminium  // bright metal that mirrors the studio
+        spunAluminium,  // lathe-turned metal with an anisotropic highlight
+        anodised        // satin dyed metal
     };
 
-    juce::Colour cap { 0xffc3c7cc };
-    juce::Colour body { 0xff1b1e22 };
-    juce::Colour pointer { 0xffe8e4da };  // paint-filled engraving on the cap
-    juce::Colour index { 0xffe8e4da };    // printed index on the skirt
+    juce::Colour cap { 0xff34373c };
+    juce::Colour body { 0xff141518 };
+    juce::Colour pointer { 0xfff2f4f7 };  // paint-filled engraving on the cap
+    juce::Colour index { 0xfff2f4f7 };    // printed index on the skirt
     Material capMaterial = Material::spunAluminium;
     Material bodyMaterial = Material::anodised;
     float capRatio = 0.60f;               // cap radius as a fraction of the knob radius

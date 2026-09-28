@@ -12,15 +12,13 @@ void Faceplate::paint (juce::Graphics& g, juce::Rectangle<int> bounds, const The
         layer.addTransform (juce::AffineTransform::scale (scale));
         layer.addTransform (juce::AffineTransform::translation (static_cast<float> (-bounds.getX()), static_cast<float> (-bounds.getY())));
 
-        // Machined edge of the plate.
+        // Machined edge of the panel.
         const auto edge = bounds.toFloat();
         layer.setColour (juce::Colours::white.withAlpha (0.10f));
         layer.fillRect (edge.withHeight (1.0f));
         layer.setColour (juce::Colours::black.withAlpha (0.45f));
         layer.fillRect (edge.withTop (edge.getBottom() - 1.0f));
 
-        if (screws)
-            silkscreen::screws (layer, edge);
         if (print != nullptr)
             print (layer);
     }
@@ -35,12 +33,12 @@ void wordmark (juce::Graphics& g, const juce::String& product, const juce::Strin
                juce::Point<float> topLeft, const Palette& palette)
 {
     g.setColour (palette.silkscreen);
-    g.setFont (fonts::wordmark (21.0f, 0.18f));
-    g.drawText (product.toUpperCase(), juce::Rectangle<float> (topLeft.x, topLeft.y, 520.0f, 30.0f),
+    g.setFont (fonts::label (30.0f, 0.45f));
+    g.drawText (product.toUpperCase(), juce::Rectangle<float> (topLeft.x, topLeft.y, 600.0f, 36.0f),
                 juce::Justification::centredLeft, false);
     g.setColour (palette.silkscreenDim);
-    g.setFont (fonts::label (11.5f, 0.22f));
-    g.drawText (descriptor.toUpperCase(), juce::Rectangle<float> (topLeft.x + 2.0f, topLeft.y + 30.0f, 520.0f, 16.0f),
+    g.setFont (fonts::label (11.5f, 0.3f));
+    g.drawText (descriptor.toUpperCase(), juce::Rectangle<float> (topLeft.x + 2.0f, topLeft.y + 36.0f, 600.0f, 14.0f),
                 juce::Justification::centredLeft, false);
 }
 
@@ -63,71 +61,19 @@ void makersMark (juce::Graphics& g, juce::Point<float> baselineLeft, const Palet
                 juce::Justification::centredLeft, false);
 }
 
-void groove (juce::Graphics& g, float x1, float x2, float y)
+void section (juce::Graphics& g, const juce::String& title, juce::Rectangle<float> rule, const Palette& palette)
 {
-    g.setColour (juce::Colours::black.withAlpha (0.55f));
-    g.fillRect (x1, y, x2 - x1, 1.0f);
-    g.setColour (juce::Colours::white.withAlpha (0.08f));
-    g.fillRect (x1, y + 1.0f, x2 - x1, 1.0f);
-}
-
-void frame (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& title, const Palette& palette)
-{
-    const auto font = fonts::label (11.5f, 0.24f);
+    const auto font = fonts::label (11.5f, 0.26f);
     const auto text = title.toUpperCase();
     juce::GlyphArrangement glyphs;
     glyphs.addLineOfText (font, text, 0.0f, 0.0f);
-    const auto titleWidth = glyphs.getBoundingBox (0, -1, true).getWidth() + 14.0f;
-    const auto c = metrics::frameCorner;
-    const auto gapStart = r.getX() + 16.0f, gapEnd = gapStart + titleWidth;
-
-    juce::Path path;
-    path.startNewSubPath (gapEnd, r.getY());
-    path.lineTo (r.getRight() - c, r.getY());
-    path.quadraticTo (r.getRight(), r.getY(), r.getRight(), r.getY() + c);
-    path.lineTo (r.getRight(), r.getBottom() - c);
-    path.quadraticTo (r.getRight(), r.getBottom(), r.getRight() - c, r.getBottom());
-    path.lineTo (r.getX() + c, r.getBottom());
-    path.quadraticTo (r.getX(), r.getBottom(), r.getX(), r.getBottom() - c);
-    path.lineTo (r.getX(), r.getY() + c);
-    path.quadraticTo (r.getX(), r.getY(), r.getX() + c, r.getY());
-    path.lineTo (gapStart, r.getY());
-    g.setColour (palette.silkscreen.withAlpha (0.30f));
-    g.strokePath (path, juce::PathStrokeType (metrics::frameLine));
-
-    g.setColour (palette.silkscreen.withAlpha (0.88f));
+    const auto textWidth = glyphs.getBoundingBox (0, -1, true).getWidth();
+    g.setColour (palette.silkscreenDim);
     g.setFont (font);
-    g.drawText (text, juce::Rectangle<float> (gapStart, r.getY() - 8.0f, titleWidth, 16.0f), juce::Justification::centred, false);
-}
-
-void legend (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area, const Palette& palette,
-             juce::Justification justification, bool dim)
-{
-    g.setColour (dim ? palette.silkscreenDim : palette.silkscreen);
-    g.setFont (fonts::label (11.5f, 0.24f));
-    g.drawText (text.toUpperCase(), area, justification, false);
-}
-
-void screws (juce::Graphics& g, juce::Rectangle<float> bounds)
-{
-    const auto inset = metrics::screwInset;
-    const juce::Point<float> corners[] {
-        { bounds.getX() + inset, bounds.getY() + inset },
-        { bounds.getRight() - inset, bounds.getY() + inset },
-        { bounds.getX() + inset, bounds.getBottom() - inset },
-        { bounds.getRight() - inset, bounds.getBottom() - inset },
-    };
-    // Each screw was driven home at its own angle.
-    const float turns[] { 0.35f, 1.10f, 0.72f, 0.05f };
-    for (int i = 0; i < 4; ++i)
-        render::screw (g, corners[i], metrics::screwDiameter, turns[i]);
-}
-
-void litLegend (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area, juce::Colour colour,
-                const juce::Font& font, juce::Justification justification, float glow)
-{
-    render::GlowText lit;
-    lit.draw (g, text, font, area, justification, colour, 2.4f, glow);
+    g.drawText (text, rule.withWidth (textWidth + 8.0f).withHeight (14.0f).translated (0.0f, -7.0f),
+                juce::Justification::centredLeft, false);
+    g.setColour (juce::Colours::white.withAlpha (0.08f));
+    g.fillRect (rule.withTrimmedLeft (textWidth + 14.0f).withHeight (1.0f));
 }
 } // namespace silkscreen
 } // namespace affine

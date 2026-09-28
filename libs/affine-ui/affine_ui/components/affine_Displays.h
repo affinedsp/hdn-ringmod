@@ -7,11 +7,8 @@ namespace render
 /** A panel LED behind a domed lens. `level` 0 is dark, 1 is fully lit. */
 void lamp (juce::Graphics&, juce::Point<float> centre, float diameter, juce::Colour colour, float level);
 
-/** A glass display window cut into the faceplate. */
+/** A glass display window cut into the panel. */
 void glass (juce::Graphics&, juce::Rectangle<float> area, const Palette&, float corner = metrics::displayCorner);
-
-/** An indicator in the palette's lamp style: an LED lens or a jewel. */
-void indicator (juce::Graphics&, juce::Point<float> centre, float diameter, juce::Colour colour, float level, const Palette&);
 } // namespace render
 
 /**
@@ -29,8 +26,6 @@ public:
     void setLampColour (juce::Colour);
     void setShowsLamp (bool);
     void setGlassVisible (bool);
-    /** Dark lettering on a window lit in the emission colour, as on an illuminated legend. */
-    void setBacklit (bool);
     void setDisplayFont (const juce::Font&);
 
     void paint (juce::Graphics&) override;
@@ -40,7 +35,7 @@ private:
     juce::Colour emission, lampColour;
     juce::Font font;
     float lampLevel = 0.0f;
-    bool showsLamp = true, glassVisible = true, backlit = false;
+    bool showsLamp = true, glassVisible = true;
     render::GlowText glow;
 };
 } // namespace affine

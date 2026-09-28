@@ -5,7 +5,7 @@
 
 namespace RingmodTheme
 {
-// Stealth finish: matte black powder coat, white LED rings and soft keys, and one amber screen.
+// The family theme with the ring modulator's amber screen.
 affine::Theme theme();
 }
 

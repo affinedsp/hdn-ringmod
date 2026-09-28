@@ -3,7 +3,7 @@
 
   ID:                 affine_ui
   vendor:             affine
-  version:            2.0.0
+  version:            3.0.0
   name:               Affine instrument UI
   description:        Shared rendered-instrument design language for Affine plug-ins
   license:            GPL-3.0-or-later
@@ -26,7 +26,6 @@
 #include <cstdlib>
 #include <functional>
 #include <limits>
-#include <map>
 #include <memory>
 
 #include "render/affine_Shading.h"
@@ -36,11 +35,8 @@
 #include "render/affine_Glow.h"
 #include "theme/affine_Theme.h"
 #include "components/affine_Knob.h"
-#include "components/affine_NeedleMeter.h"
 #include "components/affine_Displays.h"
-#include "components/affine_LadderMeter.h"
 #include "components/affine_Keys.h"
-#include "components/affine_Nixie.h"
 #include "components/affine_Faceplate.h"
-#include "components/affine_Legends.h"
+#include "components/affine_Screen.h"
 #include "theme/affine_LookAndFeel.h"

@@ -11,8 +11,6 @@ juce_add_binary_data(affine_ui_fonts
         "${AFFINE_UI_ROOT}/fonts/BarlowCondensed-Regular.ttf"
         "${AFFINE_UI_ROOT}/fonts/BarlowCondensed-SemiBold.ttf"
         "${AFFINE_UI_ROOT}/fonts/Michroma-Regular.ttf"
-        "${AFFINE_UI_ROOT}/fonts/NixieOne-Regular.ttf"
-        "${AFFINE_UI_ROOT}/fonts/DSEG14Classic-Bold.ttf"
         "${AFFINE_UI_ROOT}/fonts/ShareTechMono-Regular.ttf")
 
 juce_add_module("${AFFINE_UI_ROOT}/affine_ui")

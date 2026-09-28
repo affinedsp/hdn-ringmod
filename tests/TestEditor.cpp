@@ -108,6 +108,7 @@ TEST_CASE("Ring modulator theme: printed and emitted colours keep readable contr
     }
 
     REQUIRE(contrastRatio(palette.accent, palette.glass) >= 4.5f);
+    REQUIRE(contrastRatio(palette.screen, palette.glass) >= 4.5f);
     REQUIRE(contrastRatio(palette.silkscreen, palette.glass) >= 4.5f);
 }
 
@@ -115,9 +116,7 @@ TEST_CASE("Family typefaces are bundled rather than taken from the system")
 {
     REQUIRE(affine::fonts::label(18.0f).getTypefaceName() == "Barlow Condensed");
     REQUIRE(affine::fonts::wordmark(18.0f).getTypefaceName() == "Michroma");
-    REQUIRE(affine::fonts::nixie(18.0f).getTypefaceName() == "Nixie One");
     REQUIRE(affine::fonts::readout(18.0f).getTypefaceName() == "Share Tech Mono");
-    REQUIRE(affine::fonts::segment(18.0f).getTypefaceName().startsWith("DSEG14"));
 }
 
 TEST_CASE("Editor: every parameter is a focusable control mapped to its host parameter")

@@ -97,16 +97,9 @@ void Knob::setShowsActivityLamp (bool shouldShow)
     repaint();
 }
 
-void Knob::setLedRing (bool shouldShow)
-{
-    ledRing = shouldShow;
-    repaint();
-}
-
 juce::Point<int> Knob::getPreferredSize() const
 {
-    // An LED ring pushes the printed numbers further out.
-    return { juce::roundToInt (diameter + (ledRing ? 76.0f : 60.0f)),
+    return { juce::roundToInt (diameter + 76.0f),
              juce::roundToInt (labelHeight + scaleMargin + diameter + readoutGap + readoutHeight + 2.0f) };
 }
 
@@ -160,8 +153,8 @@ void Knob::paint (juce::Graphics& g)
             juce::GlyphArrangement glyphs;
             glyphs.addLineOfText (g.getCurrentFont(), text, 0.0f, 0.0f);
             const auto textWidth = glyphs.getBoundingBox (0, -1, true).getWidth();
-            render::indicator (g, { geometry.label.getCentreX() - textWidth * 0.5f - 9.0f, geometry.label.getCentreY() - 0.5f },
-                               4.5f, palette.accent, live ? 1.0f : 0.0f, palette);
+            render::lamp (g, { geometry.label.getCentreX() - textWidth * 0.5f - 9.0f, geometry.label.getCentreY() - 0.5f },
+                          4.5f, palette.accent, live ? 1.0f : 0.0f);
         }
     }
 
@@ -218,71 +211,42 @@ void Knob::paintScale (juce::Graphics& g, const Geometry& geometry)
     const auto rotary = getRotaryParameters();
     const auto r = geometry.radius;
     const auto enabled = isEnabled();
-    const auto angleFor = [&] (double plain)
+    const auto live = enabled && ! inactive;
+    const auto angleFor = [&] (float proportion)
     {
-        const auto p = static_cast<float> (valueToProportionOfLength (plain));
-        return rotary.startAngleRadians + p * (rotary.endAngleRadians - rotary.startAngleRadians);
+        return rotary.startAngleRadians + proportion * (rotary.endAngleRadians - rotary.startAngleRadians);
     };
 
-    if (ledRing)
+    // LEDs light from the start of the sweep up to the value; the last one fades in.
+    constexpr int count = 23;
+    const auto proportion = static_cast<float> (valueToProportionOfLength (getValue()));
+    const auto colour = inactive ? palette.accent.withMultipliedSaturation (0.2f).withMultipliedBrightness (0.7f) : palette.accent;
+    for (int i = 0; i < count; ++i)
     {
-        // LEDs light from the start of the sweep up to the value; the last one fades in.
-        constexpr int count = 23;
-        const auto proportion = static_cast<float> (valueToProportionOfLength (getValue()));
-        const auto live = enabled && ! inactive;
-        const auto colour = inactive ? palette.accent.withMultipliedSaturation (0.2f).withMultipliedBrightness (0.7f) : palette.accent;
-        for (int i = 0; i < count; ++i)
+        const auto t = static_cast<float> (i) / static_cast<float> (count - 1);
+        const auto at = geometry.centre.getPointOnCircumference (r + 7.5f, angleFor (t));
+        const auto lit = enabled ? juce::jlimit (0.0f, 1.0f, (proportion - t) * static_cast<float> (count - 1) + 1.0f) : 0.0f;
+        g.setColour (juce::Colours::black.withAlpha (0.7f));
+        g.fillEllipse (juce::Rectangle<float> (4.4f, 4.4f).withCentre (at));
+        if (lit > 0.0f)
         {
-            const auto t = static_cast<float> (i) / static_cast<float> (count - 1);
-            const auto angle = rotary.startAngleRadians + t * (rotary.endAngleRadians - rotary.startAngleRadians);
-            const auto at = geometry.centre.getPointOnCircumference (r + 7.5f, angle);
-            const auto lit = enabled ? juce::jlimit (0.0f, 1.0f, (proportion - t) * static_cast<float> (count - 1) + 1.0f) : 0.0f;
-            g.setColour (juce::Colours::black.withAlpha (0.7f));
-            g.fillEllipse (juce::Rectangle<float> (4.4f, 4.4f).withCentre (at));
-            if (lit > 0.0f)
-            {
-                if (live)
-                    render::halo (g, at, 6.5f, colour, 0.5f * lit);
-                g.setColour (colour.withAlpha (live ? lit : lit * 0.55f));
-            }
-            else
-            {
-                g.setColour (colour.withMultipliedSaturation (0.3f).withMultipliedBrightness (0.18f));
-            }
-            g.fillEllipse (juce::Rectangle<float> (3.0f, 3.0f).withCentre (at));
+            if (live)
+                render::halo (g, at, 6.5f, colour, 0.5f * lit);
+            g.setColour (colour.withAlpha (live ? lit : lit * 0.55f));
         }
-    }
-
-    if (scaleValues.empty())
-        return;
-
-    const auto majorColour = palette.silkscreen.withMultipliedAlpha (enabled ? 0.92f : 0.45f);
-    const auto minorColour = palette.silkscreen.withMultipliedAlpha (enabled ? 0.50f : 0.25f);
-
-    if (! ledRing)
-    {
-        for (size_t i = 0; i + 1 < scaleValues.size(); ++i)
+        else
         {
-            const auto a = scaleValues[i], b = scaleValues[i + 1];
-            g.setColour (minorColour);
-            for (int k = 1; k < 4; ++k)
-                strokeRadial (g, geometry.centre, angleFor (a + (b - a) * k / 4.0), r + 3.6f, r + 6.0f, 0.9f);
+            g.setColour (colour.withMultipliedSaturation (0.3f).withMultipliedBrightness (0.18f));
         }
+        g.fillEllipse (juce::Rectangle<float> (3.0f, 3.0f).withCentre (at));
     }
 
     g.setFont (fonts::label (10.0f, 0.02f));
+    g.setColour (palette.silkscreenDim.withMultipliedAlpha (enabled ? 1.0f : 0.5f));
     for (auto value : scaleValues)
     {
-        const auto angle = angleFor (value);
-        if (! ledRing)
-        {
-            g.setColour (majorColour);
-            strokeRadial (g, geometry.centre, angle, r + 3.2f, r + 7.6f, 1.2f);
-        }
-
         const auto text = scaleFormatter ? scaleFormatter (value) : juce::String (value);
-        const auto at = geometry.centre.getPointOnCircumference (ledRing ? r + 17.0f : r + 14.5f, angle);
-        g.setColour (palette.silkscreenDim.withMultipliedAlpha (enabled ? 1.0f : 0.5f));
+        const auto at = geometry.centre.getPointOnCircumference (r + 17.0f, angleFor (static_cast<float> (valueToProportionOfLength (value))));
         g.drawText (text, juce::Rectangle<float> (34.0f, 12.0f).withCentre (at), juce::Justification::centred, false);
     }
 }
@@ -293,18 +257,6 @@ void Knob::paintReadout (juce::Graphics& g, const Geometry& geometry)
     const auto area = geometry.readout;
     const auto live = isEnabled() && ! inactive;
     const auto text = getTextFromValue (getValue());
-
-    if (palette.readout == Palette::Readout::backlit)
-    {
-        const auto level = ! isEnabled() ? 0.0f : (inactive ? 0.35f : 1.0f);
-        render::litWindow (g, area, palette.readoutBacklight, level);
-        if (entry.isVisible())
-            return;
-        g.setColour (palette.readoutInk.withMultipliedAlpha (isEnabled() ? 0.92f : 0.45f));
-        g.setFont (fonts::readout (14.5f, 0.02f));
-        g.drawText (text, area.reduced (4.0f, 0.0f), juce::Justification::centred, false);
-        return;
-    }
 
     g.setColour (palette.glass);
     g.fillRoundedRectangle (area, metrics::displayCorner);

@@ -3,8 +3,8 @@
 namespace affine
 {
 /**
-    The family rotary control: a rendered knob with a calibrated printed scale,
-    a silkscreened label and a glass readout.
+    The family rotary control: a rendered knob inside a ring of LEDs lit up to
+    its value, with a calibrated printed scale, a label and a glass readout.
 
     Interaction contract (identical in every product):
     - drag anywhere on the control; up or right increases; Shift for fine;
@@ -27,7 +27,7 @@ public:
     float getDiameter() const noexcept { return diameter; }
     void setLabel (const juce::String&);
 
-    /** Printed scale marks at plain parameter values, placed through the parameter's own mapping. */
+    /** Printed scale numbers at plain parameter values, placed through the parameter's own mapping. */
     void setScale (std::vector<double> plainValues, std::function<juce::String (double)> formatter = {});
 
     /** Step for arrow keys, in plain units. Defaults to the parameter interval or 1% of the range. */
@@ -39,9 +39,6 @@ public:
 
     /** A lamp beside the label that reports whether the control currently acts on the sound. */
     void setShowsActivityLamp (bool shouldShow);
-
-    /** A ring of LEDs around the knob, lit up to the current value, instead of printed ticks. */
-    void setLedRing (bool shouldShow);
 
     juce::Point<int> getPreferredSize() const;
     /** Preferred bounds, in the parent, that put the knob's axis at `knobCentre`. */
@@ -88,7 +85,7 @@ private:
     std::vector<double> scaleValues;
     std::function<juce::String (double)> scaleFormatter;
     double keyboardStep = 0.0;
-    bool inactive = false, activityLamp = false, ledRing = false;
+    bool inactive = false, activityLamp = false;
 
     juce::TextEditor entry;
     juce::Point<float> lastDrag;
