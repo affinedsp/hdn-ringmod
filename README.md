@@ -5,7 +5,7 @@
 A pitch-tracking ring modulator audio plugin (VST3/AU/Standalone) built with JUCE 8.
 
 <p align="center">
-  <img src="img/hdn-ring-modulator-ui.png" alt="HDN Ring Modulator tracking an A2 at 110 Hz: cyan input-pitch display locked, Nixie counter showing a 220 Hz carrier at a 2x rate multiplier, and the Tracking, Carrier and Output controls" width="900">
+  <img src="img/hdn-ring-modulator-ui.png" alt="HDN Ring Modulator in the Hi-Fi finish tracking an A2 at 110 Hz: a lit tuning dial with its pointer at 220 Hz and a 220.0 readout, a green A2 display with the lock lamp lit, blue signal and tuning meters, and the Tracking, Carrier and Output controls behind black glass" width="900">
 </p>
 
 ## What Is This?
@@ -20,10 +20,11 @@ Four oscillator waveforms are available (sine, triangle, square, saw), each prod
 
 ## Interface
 
-The panel reads left to right in signal order: what the tracker hears, the carrier it drives, and the controls for each stage.
+The panel reads top to bottom: the carrier, what the tracker hears, and the controls for each stage.
 
-- **Input pitch** (cyan display): the detected note and frequency. **LOCK** lights only while the carrier is actually following the input. The confidence bar shows how certain the detector is, and the marker under it is the **Sensitivity** threshold a detection must clear. The display reads *LISTENING* while the tracker searches, *NO AUDIO* when the host is not processing, and *OFF* in Manual mode.
-- **Carrier frequency** (Nixie counter): the frequency the carrier oscillator is running at, published by the processor rather than estimated in the UI, with a trace of the selected waveform. The tubes go dark while the effect stays dry.
+- **Carrier** dial: a lit 20 Hz to 20 kHz dial with the A of every octave marked. The pointer glides to the frequency the carrier oscillator is running at, published by the processor rather than estimated in the UI, and the readout beside it shows the exact value. The pointer parks at the left stop and the readout goes dark while the effect stays dry.
+- **Input pitch** (green display): the detected note and frequency. **LOCK** lights only while the carrier is actually following the input. The display reads *LISTENING* while the tracker searches, *NO AUDIO* when the host is not processing, and *OFF* in Manual mode.
+- **Signal** meter: how certain the detector is; its green zone starts at the **Sensitivity** threshold a detection must reach. **Tuning** meter: how far the input is from the nearest note, in cents.
 - **Source** keys switch between Pitch Track and Manual. Controls that do not act in the current source keep working but show it: their activity lamp goes out and their readout dims.
 - **Waveform** keys select the carrier shape.
 
