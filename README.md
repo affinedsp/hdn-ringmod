@@ -5,7 +5,7 @@
 A pitch-tracking ring modulator audio plugin (VST3/AU/Standalone) built with JUCE 8.
 
 <p align="center">
-  <img src="img/hdn-ring-modulator-ui.png" alt="HDN Ring Modulator in the Stealth finish tracking an A2 at 110 Hz: an amber screen with the input note, tuning and signal bars, four cycles of the sine carrier across two input periods, and a 220.0 Hz carrier readout at a 2.00x ratio, above knobs with white LED rings and soft keys" width="900">
+  <img src="img/hdn-ring-modulator-ui.png" alt="HDN Ring Modulator tracking an A2 at 110 Hz: an amber screen with the input note, tuning and signal bars, four cycles of the sine carrier across two input periods, and a 220.0 Hz carrier readout at a 2.00x ratio, above knobs with white LED rings and soft keys" width="900">
 </p>
 
 ## What Is This?
