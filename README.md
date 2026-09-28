@@ -5,7 +5,7 @@
 A pitch-tracking ring modulator audio plugin (VST3/AU/Standalone) built with JUCE 8.
 
 <p align="center">
-  <img src="img/hdn-ring-modulator-ui.png" alt="HDN Ring Modulator tracking an A2 at 110 Hz: cyan input-pitch display locked, Nixie counter showing a 220 Hz carrier at a 2x rate multiplier, and the Tracking, Carrier and Output controls" width="900">
+  <img src="img/hdn-ring-modulator-ui.png" alt="HDN Ring Modulator in the Broadcast finish tracking an A2 at 110 Hz: Nixie note tubes, a confidence VU meter with the lock jewel lit, a Nixie counter showing a 220 Hz carrier with its sine on a green scope, and the Tracking, Carrier and Output controls on a hammertone rack panel" width="900">
 </p>
 
 ## What Is This?
@@ -22,8 +22,9 @@ Four oscillator waveforms are available (sine, triangle, square, saw), each prod
 
 The panel reads left to right in signal order: what the tracker hears, the carrier it drives, and the controls for each stage.
 
-- **Input pitch** (cyan display): the detected note and frequency. **LOCK** lights only while the carrier is actually following the input. The confidence bar shows how certain the detector is, and the marker under it is the **Sensitivity** threshold a detection must clear. The display reads *LISTENING* while the tracker searches, *NO AUDIO* when the host is not processing, and *OFF* in Manual mode.
-- **Carrier frequency** (Nixie counter): the frequency the carrier oscillator is running at, published by the processor rather than estimated in the UI, with a trace of the selected waveform. The tubes go dark while the effect stays dry.
+- **Input pitch** (Nixie tubes): the detected note, with its frequency in the amber window underneath. The window reads *LISTENING* while the tracker searches, *NO AUDIO* when the host is not processing, and *MANUAL CARRIER* in Manual mode.
+- **Confidence** meter: how certain the detector is. Its green zone starts at the **Sensitivity** threshold a detection must reach, and the **LOCK** jewel lights only while the carrier is actually following the input.
+- **Carrier frequency** (Nixie counter): the frequency the carrier oscillator is running at, published by the processor rather than estimated in the UI, with the selected waveform on the scope. The tubes go dark while the effect stays dry.
 - **Source** keys switch between Pitch Track and Manual. Controls that do not act in the current source keep working but show it: their activity lamp goes out and their readout dims.
 - **Waveform** keys select the carrier shape.
 
